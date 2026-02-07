@@ -1,0 +1,12 @@
+{
+  "name": "classlens",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "cd frontend && npm start",
+    "install": "cd frontend && npm install"
+  },
+  "description": "Interactive lecture video tool with AI-powered explanations"
+}
