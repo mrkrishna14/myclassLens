@@ -33,6 +33,7 @@ export default function UploadInterface({
   const [showLanguageSelection, setShowLanguageSelection] = useState(false)
   const [selectedCaptionLang, setSelectedCaptionLang] = useState(captionLanguage)
   const [selectedTargetLang, setSelectedTargetLang] = useState(targetLanguage)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleDrag = (e: React.DragEvent) => {
@@ -62,23 +63,29 @@ export default function UploadInterface({
   }
 
   const handleFile = (file: File) => {
+    console.log('File selected:', file.name, file.type, file.size)
     if (file.type.startsWith('video/')) {
+      setUploadedFile(file)
       setShowLanguageSelection(true)
-      // Store file temporarily, will upload after language selection
-      if (fileInputRef.current) {
-        const dataTransfer = new DataTransfer()
-        dataTransfer.items.add(file)
-        fileInputRef.current.files = dataTransfer.files
-      }
+      console.log('Video file accepted, showing language selection')
     } else {
       alert('Please upload a video file (MP4, MOV, etc.)')
     }
   }
 
   const handleContinue = () => {
-    if (fileInputRef.current?.files?.[0]) {
+    console.log('Continue clicked')
+    console.log('Uploaded file:', uploadedFile)
+    console.log('Caption language:', selectedCaptionLang)
+    console.log('Target language:', selectedTargetLang)
+    
+    if (uploadedFile) {
+      console.log('Calling onLanguageSelection and onVideoUpload')
       onLanguageSelection(selectedCaptionLang, selectedTargetLang)
-      onVideoUpload(fileInputRef.current.files[0])
+      onVideoUpload(uploadedFile)
+    } else {
+      console.error('No file available!')
+      alert('No video file selected. Please try uploading again.')
     }
   }
 
@@ -86,10 +93,21 @@ export default function UploadInterface({
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-4">
             <Languages className="w-8 h-8 text-primary-600" />
             <h2 className="text-2xl font-bold text-gray-800">Select Languages</h2>
           </div>
+          
+          {uploadedFile && (
+            <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-sm text-green-800">
+                <span className="font-semibold">Video selected:</span> {uploadedFile.name}
+              </p>
+              <p className="text-xs text-green-600 mt-1">
+                Size: {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+            </div>
+          )}
           
           <div className="space-y-6">
             <div>
@@ -99,10 +117,10 @@ export default function UploadInterface({
               <select
                 value={selectedCaptionLang}
                 onChange={(e) => setSelectedCaptionLang(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
               >
                 {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
+                  <option key={lang.code} value={lang.code} className="text-gray-900 bg-white">
                     {lang.name}
                   </option>
                 ))}
@@ -119,10 +137,10 @@ export default function UploadInterface({
               <select
                 value={selectedTargetLang}
                 onChange={(e) => setSelectedTargetLang(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
               >
                 {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
+                  <option key={lang.code} value={lang.code} className="text-gray-900 bg-white">
                     {lang.name}
                   </option>
                 ))}
@@ -135,13 +153,13 @@ export default function UploadInterface({
             <div className="flex gap-4 pt-4">
               <button
                 onClick={() => setShowLanguageSelection(false)}
-                className="flex-1 px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-lg hover:bg-gray-100 hover:border-gray-400 transition-colors font-medium text-gray-700"
               >
                 Back
               </button>
               <button
                 onClick={handleContinue}
-                className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium"
+                className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 active:bg-primary-800 transition-colors font-semibold shadow-md hover:shadow-lg"
               >
                 Continue
               </button>

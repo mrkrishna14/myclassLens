@@ -40,13 +40,13 @@ export default function QuestionPanel({ onSubmit, onCancel }: QuestionPanelProps
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="e.g., Explain this graph, What does this equation mean?"
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 placeholder-gray-500"
             autoFocus
           />
           <button
             type="submit"
             disabled={!question.trim()}
-            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 active:bg-primary-800 disabled:bg-gray-400 disabled:text-gray-200 disabled:cursor-not-allowed transition-colors flex items-center gap-2 font-semibold shadow-md hover:shadow-lg"
           >
             <Send className="w-4 h-4" />
             Ask

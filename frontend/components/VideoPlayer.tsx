@@ -7,6 +7,7 @@ import InteractionLog from './InteractionLog'
 import CaptionDisplay from './CaptionDisplay'
 import AccessibilityPanel from './AccessibilityPanel'
 import QuestionPanel from './QuestionPanel'
+import AnswerPopup from './AnswerPopup'
 
 interface Interaction {
   id: string
@@ -49,6 +50,8 @@ export default function VideoPlayer({
   const [showAccessibility, setShowAccessibility] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
+  const [showAnswerPopup, setShowAnswerPopup] = useState(false)
+  const [currentAnswer, setCurrentAnswer] = useState({ question: '', answer: '' })
 
   useEffect(() => {
     const video = videoRef.current
@@ -90,33 +93,46 @@ export default function VideoPlayer({
       if (!videoFile || isTranscribing) return
       
       setIsTranscribing(true)
+      console.log('Starting transcription for video:', videoFile.name, videoFile.size, 'bytes')
       try {
-        // OpenAI Whisper can handle video files directly
+        // AssemblyAI can handle video files directly
         const formData = new FormData()
         formData.append('audio', videoFile)
         formData.append('language', captionLanguage)
 
+        console.log('Sending transcription request...')
         const response = await fetch('/api/transcribe', {
           method: 'POST',
           body: formData,
         })
 
+        console.log('Transcription response status:', response.status)
+        const data = await response.json()
+        console.log('Transcription response data:', data)
+
         if (response.ok) {
-          const data = await response.json()
           // Store transcript segments for time-synced captions
-          if (data.segments) {
+          if (data.segments && data.segments.length > 0) {
+            console.log(`Loaded ${data.segments.length} transcript segments`)
             setTranscript(data.segments)
           } else if (data.text) {
             // Fallback: create a single segment if segments aren't available
+            console.log('Using fallback single segment')
             setTranscript([{
               start: 0,
               end: duration || 1000,
               text: data.text
             }])
+          } else {
+            console.error('No segments or text in response')
           }
+        } else {
+          console.error('Transcription failed:', data.error)
+          alert(`Transcription failed: ${data.error || 'Unknown error'}`)
         }
       } catch (error) {
         console.error('Transcription error:', error)
+        alert(`Transcription error: ${error}`)
         setCurrentCaption('Transcription unavailable')
       } finally {
         setIsTranscribing(false)
@@ -130,19 +146,32 @@ export default function VideoPlayer({
 
   // Update captions based on current time
   useEffect(() => {
-    if (transcript.length === 0) return
+    if (transcript.length === 0) {
+      console.log('No transcript segments available yet')
+      return
+    }
+
+    console.log(`Transcript loaded with ${transcript.length} segments`)
 
     const updateCaption = () => {
       const current = videoRef.current?.currentTime || 0
       const segment = transcript.find(
         (seg) => seg.start <= current && seg.end >= current
       )
-      setCurrentCaption(segment?.text || '')
+      if (segment && segment.text !== currentCaption) {
+        console.log(`Caption at ${current.toFixed(2)}s:`, segment.text)
+        setCurrentCaption(segment.text)
+      } else if (!segment && currentCaption) {
+        setCurrentCaption('')
+      }
     }
 
+    // Update immediately
+    updateCaption()
+    
     const interval = setInterval(updateCaption, 100)
     return () => clearInterval(interval)
-  }, [transcript])
+  }, [transcript, currentCaption])
 
   const togglePlay = () => {
     if (videoRef.current) {
@@ -203,39 +232,110 @@ export default function VideoPlayer({
   }
 
   const handleQuestionSubmit = async (question: string) => {
-    if (!boundingBox || !videoRef.current) return
+    if (!boundingBox || !videoRef.current || !containerRef.current) return
 
-    // Capture screenshot of the bounding box area
-    const canvas = document.createElement('canvas')
     const video = videoRef.current
-    canvas.width = boundingBox.width
-    canvas.height = boundingBox.height
+    const container = containerRef.current
+    
+    // Get container and video element positions
+    const containerRect = container.getBoundingClientRect()
+    const videoRect = video.getBoundingClientRect()
+    
+    // Calculate video offset within container (for letterboxing/pillarboxing)
+    const videoOffsetX = videoRect.left - containerRect.left
+    const videoOffsetY = videoRect.top - containerRect.top
+    
+    // Get the video element's display dimensions (actual rendered size)
+    const videoDisplayWidth = videoRect.width
+    const videoDisplayHeight = videoRect.height
+    
+    // Get the video's actual dimensions (native resolution)
+    const videoActualWidth = video.videoWidth
+    const videoActualHeight = video.videoHeight
+    
+    console.log('Container rect:', containerRect)
+    console.log('Video rect:', videoRect)
+    console.log('Video offset:', videoOffsetX, videoOffsetY)
+    console.log('Display dimensions:', videoDisplayWidth, 'x', videoDisplayHeight)
+    console.log('Actual video dimensions:', videoActualWidth, 'x', videoActualHeight)
+    console.log('Bounding box (container coords):', boundingBox)
+    
+    // Adjust bounding box coordinates relative to video element (not container)
+    const adjustedBox = {
+      x: boundingBox.x - videoOffsetX,
+      y: boundingBox.y - videoOffsetY,
+      width: boundingBox.width,
+      height: boundingBox.height
+    }
+    
+    console.log('Adjusted box (video display coords):', adjustedBox)
+    
+    // Clamp to video boundaries
+    adjustedBox.x = Math.max(0, Math.min(adjustedBox.x, videoDisplayWidth))
+    adjustedBox.y = Math.max(0, Math.min(adjustedBox.y, videoDisplayHeight))
+    adjustedBox.width = Math.min(adjustedBox.width, videoDisplayWidth - adjustedBox.x)
+    adjustedBox.height = Math.min(adjustedBox.height, videoDisplayHeight - adjustedBox.y)
+    
+    // Calculate scaling factors from display to actual video dimensions
+    const scaleX = videoActualWidth / videoDisplayWidth
+    const scaleY = videoActualHeight / videoDisplayHeight
+    
+    console.log('Scale factors:', scaleX, scaleY)
+    
+    // Scale bounding box coordinates to actual video dimensions
+    const scaledBox = {
+      x: adjustedBox.x * scaleX,
+      y: adjustedBox.y * scaleY,
+      width: adjustedBox.width * scaleX,
+      height: adjustedBox.height * scaleY
+    }
+    
+    console.log('Scaled bounding box (video native coords):', scaledBox)
+    
+    // Capture screenshot of the bounding box area using scaled coordinates
+    const canvas = document.createElement('canvas')
+    canvas.width = scaledBox.width
+    canvas.height = scaledBox.height
     const ctx = canvas.getContext('2d')
     
     if (ctx) {
       ctx.drawImage(
         video,
-        boundingBox.x,
-        boundingBox.y,
-        boundingBox.width,
-        boundingBox.height,
+        scaledBox.x,
+        scaledBox.y,
+        scaledBox.width,
+        scaledBox.height,
         0,
         0,
-        boundingBox.width,
-        boundingBox.height
+        scaledBox.width,
+        scaledBox.height
       )
     }
 
     const imageData = canvas.toDataURL('image/png')
+    console.log('Captured image data length:', imageData.length)
+    console.log('Image data prefix:', imageData.substring(0, 50))
+    
     const timestamp = video.currentTime
 
-    // Get transcript snippet from current time
-    const currentSegment = transcript.find(
-      (seg) => seg.start <= timestamp && seg.end >= timestamp
+    // Get transcript snippet from current time with context (30 seconds before and after)
+    const contextWindow = 30 // seconds
+    const relevantSegments = transcript.filter(
+      (seg) => seg.start >= timestamp - contextWindow && seg.start <= timestamp + contextWindow
     )
-    const transcriptSnippet = currentSegment?.text || currentCaption || 'No transcript available at this moment.'
+    
+    const transcriptSnippet = relevantSegments.length > 0
+      ? relevantSegments.map(seg => seg.text).join(' ')
+      : currentCaption || 'No transcript available at this moment.'
+    
+    console.log('Transcript context:', transcriptSnippet.substring(0, 200) + '...')
+    console.log('Number of segments in context:', relevantSegments.length)
 
     // Call AI API
+    console.log('Sending request to /api/explain...')
+    console.log('Question:', question)
+    console.log('Image size:', Math.round(imageData.length / 1024), 'KB')
+    
     try {
       const response = await fetch('/api/explain', {
         method: 'POST',
@@ -248,9 +348,15 @@ export default function VideoPlayer({
           targetLanguage,
         }),
       })
+      
+      console.log('API response status:', response.status)
 
       const data = await response.json()
       
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
       const newInteraction: Interaction = {
         id: Date.now().toString(),
         timestamp,
@@ -263,6 +369,10 @@ export default function VideoPlayer({
       setInteractions([...interactions, newInteraction])
       setShowQuestionPanel(false)
       setBoundingBox(null)
+      
+      // Show answer popup
+      setCurrentAnswer({ question, answer: data.explanation })
+      setShowAnswerPopup(true)
     } catch (error) {
       console.error('Error getting explanation:', error)
       alert('Failed to get explanation. Please try again.')
@@ -390,7 +500,7 @@ export default function VideoPlayer({
 
             <button
               onClick={handlePauseForQuestion}
-              className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors text-sm"
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 active:bg-primary-800 transition-colors text-sm font-semibold shadow-md hover:shadow-lg"
             >
               Ask Question
             </button>
@@ -433,6 +543,15 @@ export default function VideoPlayer({
         onJumpToTimestamp={handleJumpToTimestamp}
         currentTime={currentTime}
       />
+
+      {/* Answer Popup */}
+      {showAnswerPopup && (
+        <AnswerPopup
+          question={currentAnswer.question}
+          answer={currentAnswer.answer}
+          onClose={() => setShowAnswerPopup(false)}
+        />
+      )}
     </div>
   )
 }

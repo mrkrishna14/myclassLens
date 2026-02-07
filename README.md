@@ -37,7 +37,7 @@ ClassLens is a web-based platform that lets users upload and interact with pre-r
 - **Framework**: Next.js 14 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
-- **AI Integration**: OpenAI API (GPT-4 Vision, Whisper)
+- **AI Integration**: Groq API (Llama 3.2 Vision), AssemblyAI (Transcription)
 - **Icons**: Lucide React
 
 ## Project Structure
@@ -57,7 +57,8 @@ classLens/
 │   ├── tsconfig.json
 │   └── .env.local        # API keys (create this file)
 ├── README.md
-├── OPENAI_SETUP.md       # Detailed OpenAI API setup guide
+├── GROQ_SETUP.md         # Detailed FREE API setup guide
+├── OPENAI_SETUP.md       # (Legacy) OpenAI setup if you prefer paid option
 └── package.json          # Root package.json (convenience scripts)
 ```
 
@@ -66,7 +67,8 @@ classLens/
 ### Prerequisites
 
 - Node.js 18+ and npm/yarn
-- OpenAI API key (see [OPENAI_SETUP.md](./OPENAI_SETUP.md) for detailed instructions)
+- Groq API key (FREE - see [GROQ_SETUP.md](./GROQ_SETUP.md) for instructions)
+- AssemblyAI API key (FREE - see [GROQ_SETUP.md](./GROQ_SETUP.md) for instructions)
 
 ### Installation
 
@@ -83,15 +85,17 @@ npm install
 cd frontend && npm install
 ```
 
-3. **Set up OpenAI API key** (REQUIRED):
-   - See [OPENAI_SETUP.md](./OPENAI_SETUP.md) for complete instructions
+3. **Set up API keys** (REQUIRED - 100% FREE):
+   - See [GROQ_SETUP.md](./GROQ_SETUP.md) for complete instructions
    - Quick version:
      ```bash
      cd frontend
      # Create .env.local file
-     echo "OPENAI_API_KEY=your_key_here" > .env.local
+     echo "GROQ_API_KEY=your_groq_key_here" > .env.local
+     echo "ASSEMBLYAI_API_KEY=your_assemblyai_key_here" >> .env.local
      ```
-   - Replace `your_key_here` with your actual OpenAI API key
+   - Get Groq key: [console.groq.com](https://console.groq.com) (FREE)
+   - Get AssemblyAI key: [assemblyai.com](https://www.assemblyai.com) (FREE - 5 hrs/month)
 
 4. Run the development server:
 ```bash
@@ -129,21 +133,27 @@ cd frontend && npm run dev
    - Change caption size for better readability
 
 
-## OpenAI API Setup
+## 🆓 Free API Setup
 
-**⚠️ IMPORTANT: You must set up the OpenAI API before using ClassLens.**
+**⚠️ IMPORTANT: You must set up the free APIs before using ClassLens.**
 
-See **[OPENAI_SETUP.md](./OPENAI_SETUP.md)** for complete, step-by-step instructions.
+See **[GROQ_SETUP.md](./GROQ_SETUP.md)** for complete, step-by-step instructions.
 
 **Quick Summary:**
-1. Get OpenAI API key from [platform.openai.com](https://platform.openai.com)
-2. Add credits to your account (~$5-10 for testing)
+1. Get Groq API key from [console.groq.com](https://console.groq.com) - **FREE, no credit card**
+2. Get AssemblyAI key from [assemblyai.com](https://www.assemblyai.com) - **FREE, 5 hours/month**
 3. Create `frontend/.env.local` file
-4. Add: `OPENAI_API_KEY=your_key_here`
+4. Add both keys:
+   ```
+   GROQ_API_KEY=your_groq_key_here
+   ASSEMBLYAI_API_KEY=your_assemblyai_key_here
+   ```
 
 **Which APIs are used:**
-- **Whisper API** - Transcribes video audio automatically
-- **GPT-4o API** - Generates AI explanations for selected regions
+- **AssemblyAI** - Transcribes video audio (FREE - 5 hrs/month)
+- **Groq (Llama 3.2 Vision)** - Generates AI explanations (FREE)
+
+**Total Cost: $0/month** 🎉
 
 ## API Endpoints
 

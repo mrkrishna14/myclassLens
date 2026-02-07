@@ -11,12 +11,15 @@ export default function Home() {
   const [targetLanguage, setTargetLanguage] = useState<string>('en')
 
   const handleVideoUpload = (file: File) => {
+    console.log('handleVideoUpload called with file:', file.name, file.size)
     setVideoFile(file)
     const url = URL.createObjectURL(file)
+    console.log('Created video URL:', url)
     setVideoUrl(url)
   }
 
   const handleLanguageSelection = (caption: string, target: string) => {
+    console.log('handleLanguageSelection called:', caption, target)
     setCaptionLanguage(caption)
     setTargetLanguage(target)
   }

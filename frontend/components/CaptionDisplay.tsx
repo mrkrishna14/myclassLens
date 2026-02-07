@@ -16,9 +16,9 @@ export default function CaptionDisplay({ caption, size, className = '' }: Captio
   }
 
   return (
-    <div className={`px-8 py-4 ${className}`}>
+    <div className={`absolute bottom-20 left-0 right-0 flex justify-center px-8 ${className}`}>
       <div
-        className={`${sizeClasses[size]} font-medium text-white text-center drop-shadow-lg bg-black bg-opacity-60 rounded-lg px-6 py-3 inline-block`}
+        className={`${sizeClasses[size]} font-medium text-white text-center drop-shadow-lg bg-black bg-opacity-75 rounded-lg px-6 py-3 max-w-4xl`}
       >
         {caption}
       </div>
