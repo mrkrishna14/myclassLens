@@ -46,8 +46,10 @@ export default function VideoPlayer({
   const [showClickHandler, setShowClickHandler] = useState(true) // Always enabled for live streams
   const [interactions, setInteractions] = useState<Interaction[]>([])
   const [currentCaption, setCurrentCaption] = useState('')
+  const [translatedCaption, setTranslatedCaption] = useState('')
   const [transcript, setTranscript] = useState<Array<{ start: number; end: number; text: string }>>([])
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [isTranslating, setIsTranslating] = useState(false)
   const [showAccessibility, setShowAccessibility] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
@@ -70,8 +72,53 @@ export default function VideoPlayer({
       'pt': 'pt-BR',
       'ar': 'ar-SA',
       'hi': 'hi-IN',
+      'ru': 'ru-RU',
+      'it': 'it-IT',
+      'nl': 'nl-NL',
+      'sv': 'sv-SE',
+      'da': 'da-DK',
+      'no': 'no-NO',
+      'fi': 'fi-FI',
+      'pl': 'pl-PL',
+      'tr': 'tr-TR'
     }
     return langMap[langCode] || langCode || 'en-US'
+  }
+
+  // Real-time translation function
+  const translateText = async (text: string, from: string, to: string) => {
+    if (!text.trim() || from === to) {
+      setTranslatedCaption(text)
+      return
+    }
+
+    setIsTranslating(true)
+    try {
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: text.trim(),
+          sourceLanguage: from,
+          targetLanguage: to
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setTranslatedCaption(data.translatedText)
+      } else {
+        console.error('Translation API error:', response.statusText)
+        setTranslatedCaption(text) // Fallback to original text
+      }
+    } catch (error) {
+      console.error('Translation error:', error)
+      setTranslatedCaption(text) // Fallback to original text
+    } finally {
+      setIsTranslating(false)
+    }
   }
 
   // Setup video element with stream or URL (only run when stream/URL changes)
@@ -171,25 +218,29 @@ export default function VideoPlayer({
       const recognition = new SpeechRecognition()
       recognition.continuous = true
       recognition.interimResults = true
+      recognition.maxAlternatives = 1
       
       // Use proper BCP-47 language code for Web Speech API
       const speechLang = getSpeechRecognitionLang(captionLanguage)
       recognition.lang = speechLang
-      console.log('Transcription language set to:', speechLang, '(from:', captionLanguage, ')')
+      console.log('🎤 Transcription language set to:', speechLang, '(from:', captionLanguage, ')')
+      
+      // Optimize for speed and accuracy
+      recognition.serviceURI = 'builtin:speech/dictation' // Use built-in for faster response
 
       let segmentStartTime = sessionStartTime > 0 ? sessionStartTime : Date.now()
 
-      // Throttle caption updates to reduce lag
+      // Optimize for real-time performance - reduce throttling
       let lastUpdateTime = 0
-      const updateThrottle = 200 // Update at most every 200ms to reduce lag
+      const updateThrottle = 50 // Update every 50ms for near real-time response
       
       recognition.onresult = (event: any) => {
         const now = Date.now()
         const lastResult = event.results[event.results.length - 1]
         const isFinal = lastResult?.isFinal
         
-        // Always process final results, throttle interim results
-        if (!isFinal && now - lastUpdateTime < updateThrottle) {
+        // Process all results quickly, only throttle if too frequent
+        if (now - lastUpdateTime < updateThrottle && !isFinal) {
           return
         }
         lastUpdateTime = now
@@ -197,6 +248,7 @@ export default function VideoPlayer({
         let interimTranscript = ''
         let finalTranscript = ''
 
+        // Process all results from this event
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript
           if (event.results[i].isFinal) {
@@ -206,16 +258,19 @@ export default function VideoPlayer({
           }
         }
 
-        // Update current caption with interim or final results
         // Show interim results immediately for real-time feel
-        if (interimTranscript) {
-          setCurrentCaption(interimTranscript)
+        if (interimTranscript.trim()) {
+          setCurrentCaption(interimTranscript.trim())
+          // Translate interim results in real-time
+          translateText(interimTranscript.trim(), captionLanguage, targetLanguage)
         }
         
-        // When we have final results, update and store
-        if (finalTranscript) {
+        // Process final results
+        if (finalTranscript.trim()) {
           const finalText = finalTranscript.trim()
           setCurrentCaption(finalText)
+          // Translate final results
+          translateText(finalText, captionLanguage, targetLanguage)
           
           // Store final transcript segment
           const segmentEndTime = Date.now()
@@ -230,7 +285,6 @@ export default function VideoPlayer({
           }
           
           transcriptHistoryRef.current.push(newSegment)
-          // Use functional update to avoid dependency issues
           setTranscript(prev => [...transcriptHistoryRef.current])
           segmentStartTime = segmentEndTime
         }
@@ -644,7 +698,7 @@ export default function VideoPlayer({
 
           {/* Caption Overlay */}
           <CaptionDisplay
-            caption={currentCaption}
+            caption={translatedCaption || currentCaption}
             size={captionSize}
             className="absolute bottom-20 left-0 right-0"
           />
