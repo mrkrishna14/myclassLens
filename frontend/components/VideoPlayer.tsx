@@ -23,6 +23,7 @@ interface VideoPlayerProps {
   liveStream?: MediaStream
   captionLanguage: string
   targetLanguage: string
+  aiLanguage?: string
   isLive?: boolean
 }
 
@@ -32,6 +33,7 @@ export default function VideoPlayer({
   liveStream,
   captionLanguage,
   targetLanguage,
+  aiLanguage,
   isLive = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -87,9 +89,10 @@ export default function VideoPlayer({
     return langMap[langCode] || langCode || 'en-US'
   }
 
-  // Real-time translation function
+  // Real-time translation function (only for live streams)
   const translateText = async (text: string, from: string, to: string) => {
-    if (!text.trim() || from === to) {
+    // Only translate for live streams when languages differ
+    if (!isLive || !text.trim() || from === to) {
       setTranslatedCaption(text)
       return
     }
@@ -101,11 +104,7 @@ export default function VideoPlayer({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          text: text.trim(),
-          sourceLanguage: from,
-          targetLanguage: to
-        })
+        body: JSON.stringify({ text, sourceLanguage: from, targetLanguage: to }),
       })
 
       if (response.ok) {
@@ -263,15 +262,14 @@ export default function VideoPlayer({
         // Show interim results immediately for real-time feel
         if (interimTranscript.trim()) {
           setCurrentCaption(interimTranscript.trim())
-          // Translate interim results in real-time
-          translateText(interimTranscript.trim(), captionLanguage, targetLanguage)
+          // Don't translate interim results to reduce API calls
         }
         
         // Process final results
         if (finalTranscript.trim()) {
           const finalText = finalTranscript.trim()
           setCurrentCaption(finalText)
-          // Translate final results
+          // Only translate final results to reduce API calls and avoid rate limiting
           translateText(finalText, captionLanguage, targetLanguage)
           
           // Store final transcript segment
@@ -618,7 +616,7 @@ export default function VideoPlayer({
           question,
           transcriptSnippet,
           timestamp,
-          targetLanguage,
+          targetLanguage: aiLanguage || targetLanguage,
         }),
       })
 
@@ -704,7 +702,7 @@ export default function VideoPlayer({
 
           {/* Caption Overlay */}
           <CaptionDisplay
-            caption={translatedCaption || currentCaption}
+            caption={isLive ? (translatedCaption || currentCaption) : currentCaption}
             size={captionSize}
             className="absolute bottom-20 left-0 right-0"
           />

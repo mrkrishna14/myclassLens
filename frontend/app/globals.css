@@ -32,6 +32,23 @@ body {
   }
 }
 
+/* Force input text to be dark and visible */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+textarea {
+  color: #111827 !important;
+}
+
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+input[type="search"]::placeholder,
+textarea::placeholder {
+  color: #6b7280 !important;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

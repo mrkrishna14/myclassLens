@@ -5,9 +5,10 @@ import { Camera, Video, Languages, AlertCircle, CheckCircle2 } from 'lucide-reac
 
 interface LiveCameraInterfaceProps {
   onStreamStart: (stream: MediaStream) => void
-  onLanguageSelection: (caption: string, target: string) => void
+  onLanguageSelection: (caption: string, target: string, ai: string) => void
   captionLanguage: string
   targetLanguage: string
+  aiLanguage: string
 }
 
 const LANGUAGES = [
@@ -28,10 +29,12 @@ export default function LiveCameraInterface({
   onLanguageSelection,
   captionLanguage,
   targetLanguage,
+  aiLanguage,
 }: LiveCameraInterfaceProps) {
   const [showLanguageSelection, setShowLanguageSelection] = useState(false)
   const [selectedCaptionLang, setSelectedCaptionLang] = useState(captionLanguage)
   const [selectedTargetLang, setSelectedTargetLang] = useState(targetLanguage)
+  const [selectedAILang, setSelectedAILang] = useState(aiLanguage)
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
@@ -167,7 +170,8 @@ export default function LiveCameraInterface({
 
   const handleContinue = () => {
     if (previewStream) {
-      onLanguageSelection(selectedCaptionLang, selectedTargetLang)
+      // For live: captionLanguage = speaking language, targetLanguage = caption translation language, aiLanguage = AI response language
+      onLanguageSelection(selectedCaptionLang, selectedTargetLang, selectedAILang)
       onStreamStart(previewStream)
     } else {
       setError('No video stream available. Please try starting the camera again.')
@@ -238,7 +242,7 @@ export default function LiveCameraInterface({
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Caption Display Language
+                🎤 What language are you speaking?
               </label>
               <select
                 value={selectedCaptionLang}
@@ -252,13 +256,13 @@ export default function LiveCameraInterface({
                 ))}
               </select>
               <p className="mt-1 text-sm text-gray-500">
-                Language for real-time captions
+                Select the language you will speak in during the lecture
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                AI Explanation Language (Optional)
+                💬 What language do you want captions in?
               </label>
               <select
                 value={selectedTargetLang}
@@ -272,7 +276,27 @@ export default function LiveCameraInterface({
                 ))}
               </select>
               <p className="mt-1 text-sm text-gray-500">
-                Language for AI-generated explanations
+                Captions will be translated to this language in real-time
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                🤖 What language should AI explanations be in?
+              </label>
+              <select
+                value={selectedAILang}
+                onChange={(e) => setSelectedAILang(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
+              >
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code} className="text-gray-900 bg-white">
+                    {lang.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-sm text-gray-500">
+                When you ask questions, AI will respond in this language
               </p>
             </div>
 

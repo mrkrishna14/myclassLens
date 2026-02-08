@@ -49,9 +49,34 @@ export async function POST(request: NextRequest) {
     console.log('Starting transcription job...')
     console.log('Requested language:', language)
     
+    // Map language codes to AssemblyAI format
+    const languageMap: Record<string, string> = {
+      'en': 'en',
+      'es': 'es',
+      'fr': 'fr',
+      'de': 'de',
+      'zh': 'zh',
+      'ja': 'ja',
+      'ko': 'ko',
+      'pt': 'pt',
+      'ar': 'ar',
+      'hi': 'hi',
+      'it': 'it',
+      'nl': 'nl',
+      'pl': 'pl',
+      'ru': 'ru',
+      'tr': 'tr',
+      'uk': 'uk',
+      'vi': 'vi',
+      'th': 'th'
+    }
+    
+    const assemblyAILanguage = languageMap[language] || language
+    console.log('Mapped to AssemblyAI language:', assemblyAILanguage)
+    
     const transcript = await client.transcripts.transcribe({
       audio: uploadedFile,
-      language_code: language === 'auto' ? undefined : language,
+      language_code: language === 'auto' ? undefined : assemblyAILanguage,
       speech_models: ['universal-2'] as any,
       punctuate: true,
       format_text: true,

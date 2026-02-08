@@ -13,13 +13,38 @@ export async function POST(request: NextRequest) {
     
     const { image, question, transcriptSnippet, timestamp, targetLanguage } = await request.json()
 
+    // Map language codes to full names for better AI understanding
+    const languageNames: Record<string, string> = {
+      'en': 'English',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'zh': 'Chinese',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'pt': 'Portuguese',
+      'ar': 'Arabic',
+      'hi': 'Hindi',
+      'it': 'Italian',
+      'nl': 'Dutch',
+      'pl': 'Polish',
+      'ru': 'Russian',
+      'tr': 'Turkish',
+      'uk': 'Ukrainian',
+      'vi': 'Vietnamese',
+      'th': 'Thai'
+    }
+    
+    const targetLanguageName = languageNames[targetLanguage] || targetLanguage || 'English'
+
     console.log('Question:', question)
     console.log('Image data received:', !!image)
     console.log('Image data length:', image?.length)
     console.log('Image data type:', typeof image)
     console.log('Image data prefix:', image?.substring(0, 50))
     console.log('Transcript snippet length:', transcriptSnippet?.length)
-    console.log('Target language:', targetLanguage)
+    console.log('Target language code:', targetLanguage)
+    console.log('Target language name:', targetLanguageName)
 
     if (!image || !question) {
       return NextResponse.json(
@@ -55,7 +80,9 @@ Keep explanations:
 - Focused on what's most important
 - Natural and conversational
 
-${targetLanguage !== 'en' ? `IMPORTANT: Respond in ${targetLanguage}.` : 'Respond in English.'}`,
+${targetLanguageName !== 'English' ? `IMPORTANT: You MUST respond entirely in ${targetLanguageName}. Do not use English.` : 'Respond in English.'}
+
+Be clear, concise, and educational. Always reference the transcript context in your explanation.`,
         },
         {
           role: 'user',

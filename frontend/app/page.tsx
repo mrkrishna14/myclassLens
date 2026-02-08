@@ -14,6 +14,7 @@ export default function Home() {
   const [liveStream, setLiveStream] = useState<MediaStream | null>(null)
   const [captionLanguage, setCaptionLanguage] = useState<string>('en')
   const [targetLanguage, setTargetLanguage] = useState<string>('en')
+  const [aiLanguage, setAiLanguage] = useState<string>('en')
 
   const handleVideoUpload = (file: File) => {
     console.log('handleVideoUpload called with file:', file.name, file.size)
@@ -30,10 +31,13 @@ export default function Home() {
     setMode('playing')
   }
 
-  const handleLanguageSelection = (caption: string, target: string) => {
-    console.log('handleLanguageSelection called:', caption, target)
+  const handleLanguageSelection = (caption: string, target: string, ai?: string) => {
+    console.log('handleLanguageSelection called:', caption, target, ai)
     setCaptionLanguage(caption)
     setTargetLanguage(target)
+    if (ai !== undefined) {
+      setAiLanguage(ai)
+    }
   }
 
   const handleBack = () => {
@@ -107,6 +111,7 @@ export default function Home() {
         onLanguageSelection={handleLanguageSelection}
         captionLanguage={captionLanguage}
         targetLanguage={targetLanguage}
+        aiLanguage={aiLanguage}
       />
     )
   }
@@ -119,6 +124,7 @@ export default function Home() {
         liveStream={liveStream || undefined}
         captionLanguage={captionLanguage}
         targetLanguage={targetLanguage}
+        aiLanguage={aiLanguage}
         isLive={!!liveStream}
       />
     )

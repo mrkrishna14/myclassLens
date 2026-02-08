@@ -24,7 +24,7 @@ export default function QuestionPanel({ onSubmit, onCancel }: QuestionPanelProps
       <div className="bg-white rounded-lg shadow-2xl p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800">
-            What do you want to know about this?
+            What would you like to know?
           </h3>
           <button
             onClick={onCancel}
@@ -39,9 +39,10 @@ export default function QuestionPanel({ onSubmit, onCancel }: QuestionPanelProps
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="e.g., Explain this graph, What does this equation mean?"
-            className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 placeholder-gray-500"
+            placeholder="E.g., Explain this graph, or What does this equation mean?"
+            className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white !text-gray-900 placeholder-gray-500"
             autoFocus
+            style={{ color: '#111827' }}
           />
           <button
             type="submit"
