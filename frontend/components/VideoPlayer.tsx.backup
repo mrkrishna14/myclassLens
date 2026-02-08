@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Play, Pause, Volume2, VolumeX, Settings, Maximize, Minimize, X, Sparkles } from 'lucide-react'
-import BoundingBoxDrawer from './BoundingBoxDrawer'
+import { Play, Pause, Volume2, VolumeX, Settings, Maximize, Minimize } from 'lucide-react'
+import ClickQuestionHandler from './ClickQuestionHandler'
 import InteractionLog from './InteractionLog'
 import CaptionDisplay from './CaptionDisplay'
 import AccessibilityPanel from './AccessibilityPanel'
@@ -43,15 +43,14 @@ export default function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isPaused, setIsPaused] = useState(true)
-  const [showBoundingBoxDrawer, setShowBoundingBoxDrawer] = useState(true) // Always enabled for live streams
-  const [drawnBox, setDrawnBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
-  const [showQuestionPanel, setShowQuestionPanel] = useState(false)
+  const [showClickHandler, setShowClickHandler] = useState(true) // Always enabled for live streams
   const [interactions, setInteractions] = useState<Interaction[]>([])
   const [currentCaption, setCurrentCaption] = useState('')
   const [translatedCaption, setTranslatedCaption] = useState('')
   const [transcript, setTranscript] = useState<Array<{ start: number; end: number; text: string }>>([])
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [isTranslating, setIsTranslating] = useState(false)
+  const translationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [showAccessibility, setShowAccessibility] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
@@ -87,7 +86,7 @@ export default function VideoPlayer({
     return langMap[langCode] || langCode || 'en-US'
   }
 
-  // Real-time translation function
+  // Real-time translation function - immediate for better UX
   const translateText = async (text: string, from: string, to: string) => {
     if (!text.trim() || from === to) {
       setTranslatedCaption(text)
@@ -111,6 +110,7 @@ export default function VideoPlayer({
       if (response.ok) {
         const data = await response.json()
         setTranslatedCaption(data.translatedText)
+        console.log('✅ Translation successful:', data.translatedText)
       } else {
         console.error('Translation API error:', response.statusText)
         setTranslatedCaption(text) // Fallback to original text
@@ -227,8 +227,13 @@ export default function VideoPlayer({
       recognition.lang = speechLang
       console.log('🎤 Transcription language set to:', speechLang, '(from:', captionLanguage, ')')
       
-      // Optimize for speed and accuracy
-      recognition.serviceURI = 'builtin:speech/dictation' // Use built-in for faster response
+      // Improve accuracy settings
+      if ('grammars' in recognition) {
+        // Add grammar list if supported for better accuracy
+        const speechGrammarList = new (window as any).SpeechGrammarList()
+        speechGrammarList.addFromString('', 1) // Empty grammar for general speech
+        recognition.grammars = speechGrammarList
+      }
 
       let segmentStartTime = sessionStartTime > 0 ? sessionStartTime : Date.now()
 
@@ -263,7 +268,7 @@ export default function VideoPlayer({
         // Show interim results immediately for real-time feel
         if (interimTranscript.trim()) {
           setCurrentCaption(interimTranscript.trim())
-          // Translate interim results in real-time
+          // Translate interim results immediately for better UX
           translateText(interimTranscript.trim(), captionLanguage, targetLanguage)
         }
         
@@ -271,7 +276,7 @@ export default function VideoPlayer({
         if (finalTranscript.trim()) {
           const finalText = finalTranscript.trim()
           setCurrentCaption(finalText)
-          // Translate final results
+          // Translate final results immediately
           translateText(finalText, captionLanguage, targetLanguage)
           
           // Store final transcript segment
@@ -341,57 +346,19 @@ export default function VideoPlayer({
           }, 100)
         } else {
           setIsTranscribing(false)
-        }
-      }
-
-      // Start recognition - Web Speech API uses system microphone
-      // For Continuity Camera, audio should come through Mac's microphone input
-      // Check if audio track exists in stream
-      const audioTracks = liveStream.getAudioTracks()
-      console.log('Audio tracks in stream:', audioTracks.length)
-      if (audioTracks.length > 0) {
-        console.log('Audio track label:', audioTracks[0].label)
-        console.log('Audio track enabled:', audioTracks[0].enabled)
-        console.log('Audio track muted:', audioTracks[0].muted)
-        // Ensure audio track is enabled
-        audioTracks[0].enabled = true
-      } else {
-        console.warn('No audio tracks found in stream!')
-        setCurrentCaption('No audio detected in stream. Please check your microphone settings.')
-      }
-      
-      try {
-        recognition.start()
-        recognitionRef.current = recognition
-        console.log('Speech recognition initiated')
-      } catch (err: any) {
-        console.error('Error starting recognition:', err)
-        if (err.name === 'NotAllowedError') {
-          setCurrentCaption('Microphone permission denied. Please allow microphone access in browser settings.')
-        } else {
-          setCurrentCaption('Error starting transcription. Please check microphone permissions.')
-        }
-        setIsTranscribing(false)
-      }
-    }
-
-    // Small delay to ensure stream is ready
-    const timeout = setTimeout(startTranscription, 300)
-
+    // Cleanup function
     return () => {
-      clearTimeout(timeout)
-      console.log('Cleaning up speech recognition')
-      if (recognitionRef.current) {
+      if (recognitionRef.current && typeof recognitionRef.current === 'function') {
         try {
-          recognitionRef.current.stop()
+          recognitionRef.current()
         } catch (e) {
-          // Ignore errors when stopping
+          console.log('Recognition already stopped')
         }
         recognitionRef.current = null
       }
-      setIsTranscribing(false)
+      setIsConnected(false)
     }
-  }, [isLive, liveStream, captionLanguage, sessionStartTime]) // Removed currentCaption from deps to prevent re-renders
+  }, [isLive, liveStream, targetLanguage])
 
   // Transcribe video file on load (for uploaded videos)
   useEffect(() => {
@@ -526,7 +493,7 @@ export default function VideoPlayer({
 
   // Double-click is always enabled, no button needed
 
-  const handleBoxQuestion = async (box: { x: number; y: number; width: number; height: number }, question: string) => {
+  const handleClickQuestion = async (clickPos: { x: number; y: number }, question: string) => {
     if (!videoRef.current || !containerRef.current) return
 
     const video = videoRef.current
@@ -546,13 +513,9 @@ export default function VideoPlayer({
     const videoActualWidth = video.videoWidth
     const videoActualHeight = video.videoHeight
     
-    // Calculate center of the bounding box
-    const boxCenterX = box.x + box.width / 2
-    const boxCenterY = box.y + box.height / 2
-    
-    // Adjust box center position relative to video element
-    const adjustedX = boxCenterX - videoOffsetX
-    const adjustedY = boxCenterY - videoOffsetY
+    // Adjust click position relative to video element
+    const adjustedX = clickPos.x - videoOffsetX
+    const adjustedY = clickPos.y - videoOffsetY
     
     // Clamp to video boundaries
     const clampedX = Math.max(0, Math.min(adjustedX, videoDisplayWidth))
@@ -562,35 +525,36 @@ export default function VideoPlayer({
     const scaleX = videoActualWidth / videoDisplayWidth
     const scaleY = videoActualHeight / videoDisplayHeight
     
-    // Scale box center position to actual video dimensions
+    // Scale click position to actual video dimensions
     const scaledX = clampedX * scaleX
     const scaledY = clampedY * scaleY
     
-    // Calculate the box dimensions in actual video coordinates
-    const scaledBoxWidth = box.width * scaleX
-    const scaledBoxHeight = box.height * scaleY
+    // Capture a region around the click point (e.g., 400x400 pixels)
+    const captureSize = 400
+    const captureWidth = Math.min(captureSize, videoActualWidth)
+    const captureHeight = Math.min(captureSize, videoActualHeight)
     
-    // Calculate the box position in actual video coordinates
-    const scaledBoxX = Math.max(0, Math.min((box.x - videoOffsetX) * scaleX, videoActualWidth - scaledBoxWidth))
-    const scaledBoxY = Math.max(0, Math.min((box.y - videoOffsetY) * scaleY, videoActualHeight - scaledBoxHeight))
+    // Center the capture around the click point
+    const captureX = Math.max(0, Math.min(scaledX - captureWidth / 2, videoActualWidth - captureWidth))
+    const captureY = Math.max(0, Math.min(scaledY - captureHeight / 2, videoActualHeight - captureHeight))
     
-    // Capture screenshot of the exact bounding box area
+    // Capture screenshot of the area around click point
     const canvas = document.createElement('canvas')
-    canvas.width = scaledBoxWidth
-    canvas.height = scaledBoxHeight
+    canvas.width = captureWidth
+    canvas.height = captureHeight
     const ctx = canvas.getContext('2d')
     
     if (ctx) {
       ctx.drawImage(
         video,
-        scaledBoxX,
-        scaledBoxY,
-        scaledBoxWidth,
-        scaledBoxHeight,
+        captureX,
+        captureY,
+        captureWidth,
+        captureHeight,
         0,
         0,
-        scaledBoxWidth,
-        scaledBoxHeight
+        captureWidth,
+        captureHeight
       )
     }
 
@@ -638,8 +602,7 @@ export default function VideoPlayer({
       }
 
       setInteractions([...interactions, newInteraction])
-      setShowBoundingBoxDrawer(true)
-      setDrawnBox(null)
+      setShowClickHandler(false)
       
       // Show answer popup
       setCurrentAnswer({ question, answer: data.explanation })
@@ -709,107 +672,20 @@ export default function VideoPlayer({
             className="absolute bottom-20 left-0 right-0"
           />
 
-          {/* Box Question Handler - always enabled for live streams */}
-          {isLive && showBoundingBoxDrawer && (
-            <BoundingBoxDrawer
-              onComplete={(box) => {
-                setDrawnBox(box)
-                setShowBoundingBoxDrawer(false)
-                setShowQuestionPanel(true)
-              }}
-              onCancel={() => {
-                setShowBoundingBoxDrawer(false)
-              }}
+          {/* Click Question Handler - always enabled for live streams */}
+          {isLive && showClickHandler && (
+            <ClickQuestionHandler
+              onQuestion={handleClickQuestion}
+              onCancel={() => {}} // No cancel needed, always enabled
             />
           )}
 
-          {/* Question Panel */}
-          {showQuestionPanel && drawnBox && (
-            <div
-              className="absolute bg-white rounded-xl shadow-2xl p-5 z-20 min-w-[300px] max-w-sm border border-gray-200 transform transition-all duration-200 backdrop-blur-xl"
-              style={{
-                left: `${Math.min(drawnBox.x + 20, window.innerWidth - 320)}px`,
-                top: `${Math.min(drawnBox.y + 20, window.innerHeight - 280)}px`,
-              }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  <h3 className="text-base font-semibold text-gray-900">Ask about this</h3>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowQuestionPanel(false)
-                    setDrawnBox(null)
-                    setShowBoundingBoxDrawer(true)
-                  }}
-                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4 text-gray-600" />
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                <button
-                  onClick={() => {
-                    handleBoxQuestion(drawnBox, 'Explain this')
-                    setShowQuestionPanel(false)
-                    setDrawnBox(null)
-                  }}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-semibold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:scale-105"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Explain this
-                </button>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-3 bg-white text-gray-500 font-medium">or ask anything</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    id="custom-question-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
-                        handleBoxQuestion(drawnBox, (e.target as HTMLInputElement).value.trim())
-                        setShowQuestionPanel(false)
-                        setDrawnBox(null)
-                      }
-                    }}
-                    placeholder="What do you want to know?"
-                    className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 text-sm"
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => {
-                      const input = document.getElementById('custom-question-input') as HTMLInputElement
-                      if (input && input.value.trim()) {
-                        handleBoxQuestion(drawnBox, input.value.trim())
-                        setShowQuestionPanel(false)
-                        setDrawnBox(null)
-                      }
-                    }}
-                    className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all duration-200 font-medium"
-                  >
-                    Ask
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Hint bubble for box drawing */}
+          {/* Hint bubble for double-click */}
           {isLive && (
-            <div className="absolute top-4 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-2xl z-30 border border-blue-400 backdrop-blur-sm transform transition-all duration-300 hover:scale-105">
+            <div className="absolute top-4 right-4 bg-gradient-to-r from-primary-600 to-primary-700 text-white px-5 py-3 rounded-lg shadow-xl z-30 border-2 border-primary-400">
               <p className="text-sm font-semibold flex items-center gap-2">
-                <span className="text-lg">✨</span>
-                Draw a box to ask questions
+                <span className="text-lg">💡</span>
+                Double-click anywhere to ask questions
               </p>
             </div>
           )}

@@ -46,31 +46,23 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an expert educational assistant helping students understand lecture content in real-time. 
+          content: `You are a helpful AI assistant that explains visual content from educational materials. 
 
-Your capabilities:
-- Analyze images from lectures including whiteboards, slides, diagrams, and handwritten notes
-- Interpret messy handwriting, mathematical notation, scientific symbols, and diagrams
-- Use the lecture transcript context to understand where the student is in the lesson
-- Provide clear, educational explanations that connect visual content to the spoken lecture
+Analyze the image and provide clear, concise explanations. When relevant, naturally reference what was recently discussed in the lecture as context for your explanation. Speak as if you're directly helping the user understand what they're looking at.
 
-When analyzing:
-1. Carefully examine any text, equations, diagrams, or drawings in the image
-2. Use the transcript context to understand what the professor is explaining at this moment
-3. Connect the visual content to the lecture narrative
-4. If handwriting is unclear, make your best interpretation and mention if you're uncertain
-5. For mathematical/scientific content, explain both what it shows and why it matters
+Keep explanations:
+- Brief and to the point (2-3 sentences max)
+- Focused on what's most important
+- Natural and conversational
 
-${targetLanguage !== 'en' ? `IMPORTANT: Respond in ${targetLanguage}.` : 'Respond in English.'}
-
-Be clear, concise, and educational. Always reference the transcript context in your explanation.`,
+${targetLanguage !== 'en' ? `IMPORTANT: Respond in ${targetLanguage}.` : 'Respond in English.'}`,
         },
         {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: `Context from lecture transcript (at ${Math.floor(timestamp / 60)}:${Math.floor(timestamp % 60).toString().padStart(2, '0')}): "${transcriptSnippet}"\n\nQuestion: ${question}\n\nPlease analyze the image and provide a helpful explanation.`,
+              text: `The professor was just discussing: "${transcriptSnippet}"\n\n${question}`,
             },
             {
               type: 'image_url',
