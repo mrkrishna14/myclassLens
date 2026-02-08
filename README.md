@@ -6,29 +6,32 @@ ClassLens is a web-based platform that lets users upload and interact with pre-r
 
 ### 🎯 Core Functionality
 
-1. **Video Upload Interface**
-   - Clean, drag-and-drop upload interface
+1. **Video Upload & Live Camera**
+   - Clean, drag-and-drop upload interface for pre-recorded videos
+   - **NEW: Live Camera mode** - Use your iPhone wirelessly as a camera
    - Support for common video formats (MP4, MOV, etc.)
    - Language selection for captions and AI explanations
 
-2. **Live Captions**
-   - Auto-generated transcriptions from video audio
+2. **Real-Time Captions**
+   - Auto-generated transcriptions from video audio (uploaded videos)
+   - **NEW: Real-time transcription** for live camera streams using Web Speech API
    - Translated captions in selected language
    - Time-synced with video playback
 
 3. **Interactive Drag-and-Ask**
-   - Pause video at any moment
+   - Pause video at any moment (or use on live streams)
    - Draw bounding boxes over any region (graphs, equations, diagrams, text)
+   - Works on both uploaded videos and live camera streams
    - Ask questions about selected areas
    - AI-generated explanations with context
 
 4. **Interaction History**
    - Sidebar log of all interactions
    - Timestamp, screenshot, question, and answer for each interaction
-   - Click to jump back to any point in the video
+   - Click to jump back to any point in the video (uploaded videos only)
 
 5. **Accessibility Features**
-   - Adjustable playback speed (0.25x - 2x)
+   - Adjustable playback speed (0.25x - 2x) for uploaded videos
    - Configurable caption sizes (small, medium, large)
    - Full keyboard support
 
@@ -108,7 +111,10 @@ cd frontend && npm run dev
 
 ## Usage
 
+### Option 1: Upload a Video
+
 1. **Upload a Video**
+   - Select "Upload Video" from the home screen
    - Drag and drop a lecture video or click "Browse Files"
    - Select your preferred caption language
    - Choose the language for AI explanations (optional)
@@ -128,8 +134,28 @@ cd frontend && npm run dev
    - Click any interaction to jump to that timestamp
    - Review past questions and answers
 
-5. **Accessibility**
-   - Click the settings icon to adjust playback speed
+### Option 2: Live Camera (NEW!)
+
+1. **Set Up iPhone Camera**
+   - See [IPHONE_CAMERA_SETUP.md](./IPHONE_CAMERA_SETUP.md) for detailed instructions
+   - Install a camera app (EpocCam, DroidCam, or use Continuity Camera on Mac)
+   - Connect iPhone and computer to the same Wi-Fi network
+
+2. **Start Live Session**
+   - Select "Live Camera" from the home screen
+   - Grant camera and microphone permissions
+   - Select your iPhone camera from the dropdown
+   - Click "Start Camera"
+   - Select languages and begin
+
+3. **Real-Time Features**
+   - See real-time captions as you speak (using Web Speech API)
+   - Draw bounding boxes on live video
+   - Ask questions about what's currently on screen
+   - All features work in real-time!
+
+### Accessibility
+   - Click the settings icon to adjust playback speed (uploaded videos)
    - Change caption size for better readability
 
 
@@ -198,9 +224,19 @@ Transcribes video audio to text.
 }
 ```
 
+## Live Camera Setup
+
+**For iPhone wireless camera setup, see [IPHONE_CAMERA_SETUP.md](./IPHONE_CAMERA_SETUP.md)**
+
+Quick options:
+- **EpocCam** (Recommended) - Easy setup, free version available
+- **DroidCam** - Free alternative
+- **Continuity Camera** - Built-in for Mac users
+- **OBS Virtual Camera** - Advanced option
+
 ## Future Enhancements
 
-- [ ] Real-time streaming transcription
+- [x] Real-time streaming transcription (Live Camera mode)
 - [ ] Lecture summary generation
 - [ ] Bookmark/highlight important segments
 - [ ] Export interaction history as study guide

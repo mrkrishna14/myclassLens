@@ -2,11 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Play, Pause, Volume2, VolumeX, Settings, Maximize, Minimize } from 'lucide-react'
-import BoundingBoxDrawer from './BoundingBoxDrawer'
+import ClickQuestionHandler from './ClickQuestionHandler'
 import InteractionLog from './InteractionLog'
 import CaptionDisplay from './CaptionDisplay'
 import AccessibilityPanel from './AccessibilityPanel'
-import QuestionPanel from './QuestionPanel'
 import AnswerPopup from './AnswerPopup'
 
 interface Interaction {
@@ -19,17 +18,21 @@ interface Interaction {
 }
 
 interface VideoPlayerProps {
-  videoUrl: string
-  videoFile: File
+  videoUrl?: string
+  videoFile?: File
+  liveStream?: MediaStream
   captionLanguage: string
   targetLanguage: string
+  isLive?: boolean
 }
 
 export default function VideoPlayer({
   videoUrl,
   videoFile,
+  liveStream,
   captionLanguage,
   targetLanguage,
+  isLive = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -40,9 +43,7 @@ export default function VideoPlayer({
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isPaused, setIsPaused] = useState(true)
-  const [showBoundingBox, setShowBoundingBox] = useState(false)
-  const [boundingBox, setBoundingBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
-  const [showQuestionPanel, setShowQuestionPanel] = useState(false)
+  const [showClickHandler, setShowClickHandler] = useState(true) // Always enabled for live streams
   const [interactions, setInteractions] = useState<Interaction[]>([])
   const [currentCaption, setCurrentCaption] = useState('')
   const [transcript, setTranscript] = useState<Array<{ start: number; end: number; text: string }>>([])
@@ -52,34 +53,96 @@ export default function VideoPlayer({
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [showAnswerPopup, setShowAnswerPopup] = useState(false)
   const [currentAnswer, setCurrentAnswer] = useState({ question: '', answer: '' })
+  const [sessionStartTime, setSessionStartTime] = useState<number>(0)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const transcriptHistoryRef = useRef<Array<{ start: number; end: number; text: string }>>([])
+  
+  // Map language codes to Web Speech API BCP-47 format
+  const getSpeechRecognitionLang = (langCode: string): string => {
+    const langMap: { [key: string]: string } = {
+      'en': 'en-US',
+      'es': 'es-ES',
+      'fr': 'fr-FR',
+      'de': 'de-DE',
+      'zh': 'zh-CN',
+      'ja': 'ja-JP',
+      'ko': 'ko-KR',
+      'pt': 'pt-BR',
+      'ar': 'ar-SA',
+      'hi': 'hi-IN',
+    }
+    return langMap[langCode] || langCode || 'en-US'
+  }
 
+  // Setup video element with stream or URL (only run when stream/URL changes)
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
 
-    const updateTime = () => setCurrentTime(video.currentTime)
-    const updateDuration = () => setDuration(video.duration)
+    if (isLive && liveStream) {
+      // Only set stream if it's different
+      if (video.srcObject !== liveStream) {
+        video.srcObject = liveStream
+        setSessionStartTime(Date.now())
+      }
+      // Only play if not already playing
+      if (video.paused) {
+        video.play().catch(err => {
+          console.error('Error playing video:', err)
+        })
+      }
+      setIsPlaying(true)
+      setIsPaused(false)
+    } else if (videoUrl && !isLive) {
+      video.srcObject = null
+      video.src = videoUrl
+    }
+  }, [isLive, liveStream, videoUrl]) // Removed sessionStartTime and currentTime from deps
+
+  // Time tracking and event listeners (separate effect)
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const updateTime = () => {
+      if (isLive && sessionStartTime > 0) {
+        // For live streams, calculate elapsed time
+        const elapsed = (Date.now() - sessionStartTime) / 1000
+        setCurrentTime(elapsed)
+        setDuration(elapsed) // Duration increases as stream continues
+      } else if (!isLive) {
+        setCurrentTime(video.currentTime)
+      }
+    }
+    
+    const updateDuration = () => {
+      if (!isLive) {
+        setDuration(video.duration)
+      }
+    }
+    
     const handlePlay = () => {
       setIsPlaying(true)
       setIsPaused(false)
     }
+    
     const handlePause = () => {
       setIsPlaying(false)
       setIsPaused(true)
     }
 
-    video.addEventListener('timeupdate', updateTime)
+    const timeInterval = setInterval(updateTime, 500) // Further reduced frequency to reduce lag
     video.addEventListener('loadedmetadata', updateDuration)
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
 
     return () => {
-      video.removeEventListener('timeupdate', updateTime)
+      clearInterval(timeInterval)
       video.removeEventListener('loadedmetadata', updateDuration)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
     }
-  }, [])
+  }, [isLive, sessionStartTime]) // Only depend on isLive and sessionStartTime
 
   useEffect(() => {
     if (videoRef.current) {
@@ -87,10 +150,197 @@ export default function VideoPlayer({
     }
   }, [playbackRate])
 
-  // Transcribe video on load
+  // Real-time transcription for live streams using Web Speech API
+  useEffect(() => {
+    if (!isLive || !liveStream) {
+      setIsTranscribing(false)
+      return
+    }
+
+    // Wait a bit for stream to be fully ready
+    const startTranscription = () => {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      if (!SpeechRecognition) {
+        console.warn('Web Speech API not supported. Real-time transcription unavailable.')
+        setCurrentCaption('Real-time transcription not supported in this browser')
+        setIsTranscribing(false)
+        return
+      }
+
+      console.log('Starting real-time transcription...')
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      
+      // Use proper BCP-47 language code for Web Speech API
+      const speechLang = getSpeechRecognitionLang(captionLanguage)
+      recognition.lang = speechLang
+      console.log('Transcription language set to:', speechLang, '(from:', captionLanguage, ')')
+
+      let segmentStartTime = sessionStartTime > 0 ? sessionStartTime : Date.now()
+
+      // Throttle caption updates to reduce lag
+      let lastUpdateTime = 0
+      const updateThrottle = 200 // Update at most every 200ms to reduce lag
+      
+      recognition.onresult = (event: any) => {
+        const now = Date.now()
+        const lastResult = event.results[event.results.length - 1]
+        const isFinal = lastResult?.isFinal
+        
+        // Always process final results, throttle interim results
+        if (!isFinal && now - lastUpdateTime < updateThrottle) {
+          return
+        }
+        lastUpdateTime = now
+        
+        let interimTranscript = ''
+        let finalTranscript = ''
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' '
+          } else {
+            interimTranscript += transcript
+          }
+        }
+
+        // Update current caption with interim or final results
+        // Show interim results immediately for real-time feel
+        if (interimTranscript) {
+          setCurrentCaption(interimTranscript)
+        }
+        
+        // When we have final results, update and store
+        if (finalTranscript) {
+          const finalText = finalTranscript.trim()
+          setCurrentCaption(finalText)
+          
+          // Store final transcript segment
+          const segmentEndTime = Date.now()
+          const currentSessionStart = sessionStartTime > 0 ? sessionStartTime : segmentStartTime
+          const startSeconds = (segmentStartTime - currentSessionStart) / 1000
+          const endSeconds = (segmentEndTime - currentSessionStart) / 1000
+          
+          const newSegment = {
+            start: Math.max(0, startSeconds),
+            end: Math.max(0, endSeconds),
+            text: finalText
+          }
+          
+          transcriptHistoryRef.current.push(newSegment)
+          // Use functional update to avoid dependency issues
+          setTranscript(prev => [...transcriptHistoryRef.current])
+          segmentStartTime = segmentEndTime
+        }
+      }
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error)
+        if (event.error === 'no-speech') {
+          // This is normal, just continue - don't show error
+          return
+        }
+        if (event.error === 'not-allowed') {
+          setCurrentCaption('⚠️ Microphone permission denied. Please allow microphone access in browser settings.')
+          setIsTranscribing(false)
+          return
+        }
+        if (event.error === 'audio-capture') {
+          setCurrentCaption('⚠️ No microphone found. Please check your audio settings.')
+          setIsTranscribing(false)
+          return
+        }
+        if (event.error !== 'aborted' && event.error !== 'network') {
+          console.warn('Transcription error:', event.error)
+          // Don't show error message for minor issues
+        }
+      }
+
+      recognition.onstart = () => {
+        console.log('✅ Speech recognition started successfully')
+        setIsTranscribing(true)
+        // Clear any error messages when recognition starts
+        setCurrentCaption((prev) => {
+          if (prev.startsWith('⚠️') || prev.includes('Error') || prev.includes('permission')) {
+            return ''
+          }
+          return prev
+        })
+      }
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended')
+        // Restart recognition if stream is still active
+        if (isLive && liveStream && liveStream.active) {
+          setTimeout(() => {
+            try {
+              recognition.start()
+            } catch (e: any) {
+              if (e.name !== 'InvalidStateError') {
+                console.log('Recognition restart error:', e)
+              }
+            }
+          }, 100)
+        } else {
+          setIsTranscribing(false)
+        }
+      }
+
+      // Start recognition - Web Speech API uses system microphone
+      // For Continuity Camera, audio should come through Mac's microphone input
+      // Check if audio track exists in stream
+      const audioTracks = liveStream.getAudioTracks()
+      console.log('Audio tracks in stream:', audioTracks.length)
+      if (audioTracks.length > 0) {
+        console.log('Audio track label:', audioTracks[0].label)
+        console.log('Audio track enabled:', audioTracks[0].enabled)
+        console.log('Audio track muted:', audioTracks[0].muted)
+        // Ensure audio track is enabled
+        audioTracks[0].enabled = true
+      } else {
+        console.warn('No audio tracks found in stream!')
+        setCurrentCaption('No audio detected in stream. Please check your microphone settings.')
+      }
+      
+      try {
+        recognition.start()
+        recognitionRef.current = recognition
+        console.log('Speech recognition initiated')
+      } catch (err: any) {
+        console.error('Error starting recognition:', err)
+        if (err.name === 'NotAllowedError') {
+          setCurrentCaption('Microphone permission denied. Please allow microphone access in browser settings.')
+        } else {
+          setCurrentCaption('Error starting transcription. Please check microphone permissions.')
+        }
+        setIsTranscribing(false)
+      }
+    }
+
+    // Small delay to ensure stream is ready
+    const timeout = setTimeout(startTranscription, 300)
+
+    return () => {
+      clearTimeout(timeout)
+      console.log('Cleaning up speech recognition')
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop()
+        } catch (e) {
+          // Ignore errors when stopping
+        }
+        recognitionRef.current = null
+      }
+      setIsTranscribing(false)
+    }
+  }, [isLive, liveStream, captionLanguage, sessionStartTime]) // Removed currentCaption from deps to prevent re-renders
+
+  // Transcribe video file on load (for uploaded videos)
   useEffect(() => {
     const transcribeVideo = async () => {
-      if (!videoFile || isTranscribing) return
+      if (!videoFile || isTranscribing || isLive) return
       
       setIsTranscribing(true)
       console.log('Starting transcription for video:', videoFile.name, videoFile.size, 'bytes')
@@ -139,15 +389,14 @@ export default function VideoPlayer({
       }
     }
 
-    if (videoFile && duration > 0) {
+    if (videoFile && duration > 0 && !isLive) {
       transcribeVideo()
     }
-  }, [videoFile, captionLanguage, duration])
+  }, [videoFile, captionLanguage, duration, isLive])
 
-  // Update captions based on current time
+  // Update captions based on current time (for uploaded videos only)
   useEffect(() => {
-    if (transcript.length === 0) {
-      console.log('No transcript segments available yet')
+    if (isLive || transcript.length === 0) {
       return
     }
 
@@ -171,7 +420,7 @@ export default function VideoPlayer({
     
     const interval = setInterval(updateCaption, 100)
     return () => clearInterval(interval)
-  }, [transcript, currentCaption])
+  }, [transcript, currentCaption, isLive])
 
   const togglePlay = () => {
     if (videoRef.current) {
@@ -199,6 +448,7 @@ export default function VideoPlayer({
   }
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLive) return // Can't seek in live streams
     const newTime = parseFloat(e.target.value)
     if (videoRef.current) {
       videoRef.current.currentTime = newTime
@@ -218,21 +468,10 @@ export default function VideoPlayer({
     }
   }
 
-  const handlePauseForQuestion = () => {
-    if (videoRef.current && isPlaying) {
-      videoRef.current.pause()
-    }
-    setShowBoundingBox(true)
-  }
+  // Double-click is always enabled, no button needed
 
-  const handleBoundingBoxComplete = (box: { x: number; y: number; width: number; height: number }) => {
-    setBoundingBox(box)
-    setShowBoundingBox(false)
-    setShowQuestionPanel(true)
-  }
-
-  const handleQuestionSubmit = async (question: string) => {
-    if (!boundingBox || !videoRef.current || !containerRef.current) return
+  const handleClickQuestion = async (clickPos: { x: number; y: number }, question: string) => {
+    if (!videoRef.current || !containerRef.current) return
 
     const video = videoRef.current
     const container = containerRef.current
@@ -241,84 +480,66 @@ export default function VideoPlayer({
     const containerRect = container.getBoundingClientRect()
     const videoRect = video.getBoundingClientRect()
     
-    // Calculate video offset within container (for letterboxing/pillarboxing)
+    // Calculate video offset within container
     const videoOffsetX = videoRect.left - containerRect.left
     const videoOffsetY = videoRect.top - containerRect.top
     
-    // Get the video element's display dimensions (actual rendered size)
+    // Get dimensions
     const videoDisplayWidth = videoRect.width
     const videoDisplayHeight = videoRect.height
-    
-    // Get the video's actual dimensions (native resolution)
     const videoActualWidth = video.videoWidth
     const videoActualHeight = video.videoHeight
     
-    console.log('Container rect:', containerRect)
-    console.log('Video rect:', videoRect)
-    console.log('Video offset:', videoOffsetX, videoOffsetY)
-    console.log('Display dimensions:', videoDisplayWidth, 'x', videoDisplayHeight)
-    console.log('Actual video dimensions:', videoActualWidth, 'x', videoActualHeight)
-    console.log('Bounding box (container coords):', boundingBox)
-    
-    // Adjust bounding box coordinates relative to video element (not container)
-    const adjustedBox = {
-      x: boundingBox.x - videoOffsetX,
-      y: boundingBox.y - videoOffsetY,
-      width: boundingBox.width,
-      height: boundingBox.height
-    }
-    
-    console.log('Adjusted box (video display coords):', adjustedBox)
+    // Adjust click position relative to video element
+    const adjustedX = clickPos.x - videoOffsetX
+    const adjustedY = clickPos.y - videoOffsetY
     
     // Clamp to video boundaries
-    adjustedBox.x = Math.max(0, Math.min(adjustedBox.x, videoDisplayWidth))
-    adjustedBox.y = Math.max(0, Math.min(adjustedBox.y, videoDisplayHeight))
-    adjustedBox.width = Math.min(adjustedBox.width, videoDisplayWidth - adjustedBox.x)
-    adjustedBox.height = Math.min(adjustedBox.height, videoDisplayHeight - adjustedBox.y)
+    const clampedX = Math.max(0, Math.min(adjustedX, videoDisplayWidth))
+    const clampedY = Math.max(0, Math.min(adjustedY, videoDisplayHeight))
     
-    // Calculate scaling factors from display to actual video dimensions
+    // Calculate scaling factors
     const scaleX = videoActualWidth / videoDisplayWidth
     const scaleY = videoActualHeight / videoDisplayHeight
     
-    console.log('Scale factors:', scaleX, scaleY)
+    // Scale click position to actual video dimensions
+    const scaledX = clampedX * scaleX
+    const scaledY = clampedY * scaleY
     
-    // Scale bounding box coordinates to actual video dimensions
-    const scaledBox = {
-      x: adjustedBox.x * scaleX,
-      y: adjustedBox.y * scaleY,
-      width: adjustedBox.width * scaleX,
-      height: adjustedBox.height * scaleY
-    }
+    // Capture a region around the click point (e.g., 400x400 pixels)
+    const captureSize = 400
+    const captureWidth = Math.min(captureSize, videoActualWidth)
+    const captureHeight = Math.min(captureSize, videoActualHeight)
     
-    console.log('Scaled bounding box (video native coords):', scaledBox)
+    // Center the capture around the click point
+    const captureX = Math.max(0, Math.min(scaledX - captureWidth / 2, videoActualWidth - captureWidth))
+    const captureY = Math.max(0, Math.min(scaledY - captureHeight / 2, videoActualHeight - captureHeight))
     
-    // Capture screenshot of the bounding box area using scaled coordinates
+    // Capture screenshot of the area around click point
     const canvas = document.createElement('canvas')
-    canvas.width = scaledBox.width
-    canvas.height = scaledBox.height
+    canvas.width = captureWidth
+    canvas.height = captureHeight
     const ctx = canvas.getContext('2d')
     
     if (ctx) {
       ctx.drawImage(
         video,
-        scaledBox.x,
-        scaledBox.y,
-        scaledBox.width,
-        scaledBox.height,
+        captureX,
+        captureY,
+        captureWidth,
+        captureHeight,
         0,
         0,
-        scaledBox.width,
-        scaledBox.height
+        captureWidth,
+        captureHeight
       )
     }
 
     const imageData = canvas.toDataURL('image/png')
-    console.log('Captured image data length:', imageData.length)
-    console.log('Image data prefix:', imageData.substring(0, 50))
     
-    const timestamp = video.currentTime
+    const timestamp = isLive ? currentTime : video.currentTime
 
-    // Get transcript snippet from current time with context (30 seconds before and after)
+    // Get transcript snippet from current time with context
     const contextWindow = 30 // seconds
     const relevantSegments = transcript.filter(
       (seg) => seg.start >= timestamp - contextWindow && seg.start <= timestamp + contextWindow
@@ -327,15 +548,8 @@ export default function VideoPlayer({
     const transcriptSnippet = relevantSegments.length > 0
       ? relevantSegments.map(seg => seg.text).join(' ')
       : currentCaption || 'No transcript available at this moment.'
-    
-    console.log('Transcript context:', transcriptSnippet.substring(0, 200) + '...')
-    console.log('Number of segments in context:', relevantSegments.length)
 
     // Call AI API
-    console.log('Sending request to /api/explain...')
-    console.log('Question:', question)
-    console.log('Image size:', Math.round(imageData.length / 1024), 'KB')
-    
     try {
       const response = await fetch('/api/explain', {
         method: 'POST',
@@ -348,8 +562,6 @@ export default function VideoPlayer({
           targetLanguage,
         }),
       })
-      
-      console.log('API response status:', response.status)
 
       const data = await response.json()
       
@@ -367,8 +579,7 @@ export default function VideoPlayer({
       }
 
       setInteractions([...interactions, newInteraction])
-      setShowQuestionPanel(false)
-      setBoundingBox(null)
+      setShowClickHandler(false)
       
       // Show answer popup
       setCurrentAnswer({ question, answer: data.explanation })
@@ -380,10 +591,9 @@ export default function VideoPlayer({
   }
 
   const handleJumpToTimestamp = (timestamp: number) => {
-    if (videoRef.current) {
+    if (isLive || !videoRef.current) return // Can't jump in live streams
       videoRef.current.currentTime = timestamp
       setCurrentTime(timestamp)
-    }
   }
 
   const formatTime = (seconds: number) => {
@@ -405,14 +615,29 @@ export default function VideoPlayer({
             src={videoUrl}
             className="max-w-full max-h-full"
             onClick={togglePlay}
+            autoPlay={isLive}
+            playsInline
+            muted={isLive && isMuted}
+            onLoadedMetadata={() => {
+              if (isLive && videoRef.current) {
+                console.log('Live video metadata loaded')
+              }
+            }}
+            onCanPlay={() => {
+              if (isLive && videoRef.current && videoRef.current.paused) {
+                videoRef.current.play().catch(err => {
+                  console.error('Auto-play prevented:', err)
+                })
+              }
+            }}
           />
 
-          {/* Transcription Loading Indicator */}
-          {isTranscribing && (
+          {/* Transcription Loading Indicator - only show if actually transcribing */}
+          {isTranscribing && !currentCaption && (
             <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm">Transcribing video...</span>
+                <span className="text-sm">Starting transcription...</span>
               </div>
             </div>
           )}
@@ -424,26 +649,22 @@ export default function VideoPlayer({
             className="absolute bottom-20 left-0 right-0"
           />
 
-          {/* Bounding Box Drawer */}
-          {showBoundingBox && isPaused && (
-            <BoundingBoxDrawer
-              onComplete={handleBoundingBoxComplete}
-              onCancel={() => {
-                setShowBoundingBox(false)
-                setBoundingBox(null)
-              }}
+          {/* Click Question Handler - always enabled for live streams */}
+          {isLive && showClickHandler && (
+            <ClickQuestionHandler
+              onQuestion={handleClickQuestion}
+              onCancel={() => {}} // No cancel needed, always enabled
             />
           )}
 
-          {/* Question Panel */}
-          {showQuestionPanel && boundingBox && (
-            <QuestionPanel
-              onSubmit={handleQuestionSubmit}
-              onCancel={() => {
-                setShowQuestionPanel(false)
-                setBoundingBox(null)
-              }}
-            />
+          {/* Hint bubble for double-click */}
+          {isLive && (
+            <div className="absolute top-4 right-4 bg-gradient-to-r from-primary-600 to-primary-700 text-white px-5 py-3 rounded-lg shadow-xl z-30 border-2 border-primary-400">
+              <p className="text-sm font-semibold flex items-center gap-2">
+                <span className="text-lg">💡</span>
+                Double-click anywhere to ask questions
+              </p>
+            </div>
           )}
         </div>
 
@@ -486,24 +707,26 @@ export default function VideoPlayer({
               <input
                 type="range"
                 min="0"
-                max={duration}
+                max={duration || 100}
                 step="0.1"
                 value={currentTime}
                 onChange={handleSeek}
-                className="w-full"
+                disabled={isLive}
+                className="w-full disabled:opacity-50"
               />
             </div>
 
             <span className="text-white text-sm">
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {isLive ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                  LIVE {formatTime(currentTime)}
+                </span>
+              ) : (
+                `${formatTime(currentTime)} / ${formatTime(duration)}`
+              )}
             </span>
 
-            <button
-              onClick={handlePauseForQuestion}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 active:bg-primary-800 transition-colors text-sm font-semibold shadow-md hover:shadow-lg"
-            >
-              Ask Question
-            </button>
 
             <button
               onClick={() => setShowAccessibility(!showAccessibility)}
