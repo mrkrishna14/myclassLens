@@ -31,7 +31,7 @@ export default function AnswerPopup({ answer, question, onClose }: AnswerPopupPr
               </h3>
             </div>
             <p className="text-sm text-gray-600 font-medium">
-              "{question}"
+              &quot;{question}&quot;
             </p>
           </div>
           <button

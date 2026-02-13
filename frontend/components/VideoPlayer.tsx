@@ -62,6 +62,18 @@ export default function VideoPlayer({
   const [sessionStartTime, setSessionStartTime] = useState<number>(0)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const transcriptHistoryRef = useRef<Array<{ start: number; end: number; text: string }>>([])
+  const ttsUnlockedRef = useRef(false)
+  const lastSpokenTextRef = useRef('')
+  const lastInterimTranslateAtRef = useRef(0)
+  const abortTranslateRef = useRef<AbortController | null>(null)
+  const [ttsVoicesReady, setTtsVoicesReady] = useState(false)
+  const pendingSpeechRef = useRef<{ text: string; language: string; interrupt: boolean } | null>(null)
+  const lastTranslatedCaptionRef = useRef('')
+  const speechQueueRef = useRef<Array<{ text: string; language: string }>>([])
+  const isQueueSpeakingRef = useRef(false)
+  const deltaBufferRef = useRef('')
+  const deltaFlushTimerRef = useRef<number | null>(null)
+  const lastDeltaFlushAtRef = useRef(0)
   
   // Map language codes to Web Speech API BCP-47 format
   const getSpeechRecognitionLang = (langCode: string): string => {
@@ -90,37 +102,267 @@ export default function VideoPlayer({
   }
 
   // Real-time translation function (only for live streams)
-  const translateText = async (text: string, from: string, to: string) => {
+  const translateText = async (
+    text: string,
+    from: string,
+    to: string,
+    interruptSpeech: boolean = false,
+    speak: boolean = true
+  ) => {
     // Only translate for live streams when languages differ
     if (!isLive || !text.trim() || from === to) {
       setTranslatedCaption(text)
+      if (speak) {
+        speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
+      }
       return
     }
 
     setIsTranslating(true)
     try {
+      if (abortTranslateRef.current) {
+        abortTranslateRef.current.abort()
+      }
+      abortTranslateRef.current = new AbortController()
       const response = await fetch('/api/translate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ text, sourceLanguage: from, targetLanguage: to }),
+        signal: abortTranslateRef.current.signal,
       })
 
       if (response.ok) {
         const data = await response.json()
         setTranslatedCaption(data.translatedText)
+        if (speak) {
+          speakText(data.translatedText, getSpeechRecognitionLang(to), interruptSpeech)
+        }
       } else {
         console.error('Translation API error:', response.statusText)
         setTranslatedCaption(text) // Fallback to original text
+        if (speak) {
+          speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
+        }
       }
     } catch (error) {
+      if ((error as any)?.name === 'AbortError') {
+        return
+      }
       console.error('Translation error:', error)
       setTranslatedCaption(text) // Fallback to original text
+      if (speak) {
+        speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
+      }
     } finally {
       setIsTranslating(false)
     }
   }
+
+  // Text-to-Speech function using Web Speech Synthesis API
+  const speakText = (text: string, language: string, interrupt: boolean = false) => {
+    if (document.visibilityState === 'hidden') return
+    if (!text.trim()) return
+    const normalized = text.trim()
+    if (normalized === lastSpokenTextRef.current) return
+
+    if (!ttsUnlockedRef.current) {
+      pendingSpeechRef.current = { text: normalized, language, interrupt }
+      return
+    }
+
+    // Avoid canceling too aggressively (Chrome can end up never speaking)
+    if (speechSynthesis.speaking) {
+      if (!interrupt) return
+      speechSynthesis.cancel()
+    }
+
+    const utterance = new SpeechSynthesisUtterance(normalized)
+    utterance.lang = language
+    utterance.rate = 1
+    utterance.pitch = 1
+    utterance.volume = 1
+
+    utterance.onstart = () => {
+      console.log('🔊 TTS start', { language, text: normalized.slice(0, 80) })
+    }
+    utterance.onend = () => {
+      console.log('🔊 TTS end')
+    }
+    utterance.onerror = (e) => {
+      console.error('🔊 TTS error', e)
+    }
+
+    // Find a voice that matches the language
+    const voices = speechSynthesis.getVoices()
+    const matchingVoice = voices.find(voice => voice.lang.startsWith(language.split('-')[0]))
+    if (matchingVoice) {
+      utterance.voice = matchingVoice
+    }
+
+    speechSynthesis.speak(utterance)
+    lastSpokenTextRef.current = normalized
+  }
+
+  const enqueueSpeech = (text: string, language: string) => {
+    const normalized = text.trim()
+    if (!normalized) return
+    speechQueueRef.current.push({ text: normalized, language })
+  }
+
+  const speakNextFromQueue = () => {
+    if (isQueueSpeakingRef.current) return
+    if (!ttsUnlockedRef.current) return
+    if (document.visibilityState === 'hidden') return
+
+    const next = speechQueueRef.current.shift()
+    if (!next) return
+
+    isQueueSpeakingRef.current = true
+    const utterance = new SpeechSynthesisUtterance(next.text)
+    utterance.lang = next.language
+    utterance.rate = 1.2
+    utterance.pitch = 1
+    utterance.volume = 1
+
+    const voices = speechSynthesis.getVoices()
+    const matchingVoice = voices.find(voice => voice.lang.startsWith(next.language.split('-')[0]))
+    if (matchingVoice) {
+      utterance.voice = matchingVoice
+    }
+
+    utterance.onend = () => {
+      isQueueSpeakingRef.current = false
+      speakNextFromQueue()
+    }
+    utterance.onerror = () => {
+      isQueueSpeakingRef.current = false
+      speakNextFromQueue()
+    }
+
+    speechSynthesis.speak(utterance)
+  }
+
+  const flushDeltaBuffer = (language: string) => {
+    const buffered = deltaBufferRef.current.trim()
+    if (!buffered) return
+
+    deltaBufferRef.current = ''
+    lastDeltaFlushAtRef.current = Date.now()
+    enqueueSpeech(buffered, language)
+    speakNextFromQueue()
+  }
+
+  const computeDelta = (prev: string, next: string) => {
+    const p = prev.trim()
+    const n = next.trim()
+    if (!p) return n
+    if (!n) return ''
+    if (n === p) return ''
+    if (n.startsWith(p)) {
+      return n.slice(p.length).trim()
+    }
+
+    // Fallback: compute common prefix length
+    const minLen = Math.min(p.length, n.length)
+    let i = 0
+    while (i < minLen && p[i] === n[i]) i++
+    return n.slice(i).trim()
+  }
+
+  const unlockTts = () => {
+    if (ttsUnlockedRef.current) return
+    try {
+      const u = new SpeechSynthesisUtterance('')
+      u.volume = 0
+      speechSynthesis.speak(u)
+      speechSynthesis.cancel()
+      ttsUnlockedRef.current = true
+
+       if (pendingSpeechRef.current) {
+         const pending = pendingSpeechRef.current
+         pendingSpeechRef.current = null
+         speakText(pending.text, pending.language, pending.interrupt)
+       }
+
+       speakNextFromQueue()
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Chrome often requires a user gesture before speech will play.
+  // Unlock on the first pointer/keyboard gesture anywhere on the page.
+  useEffect(() => {
+    const handleFirstGesture = () => unlockTts()
+    window.addEventListener('pointerdown', handleFirstGesture, { once: true })
+    window.addEventListener('keydown', handleFirstGesture, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstGesture)
+      window.removeEventListener('keydown', handleFirstGesture)
+    }
+  }, [])
+
+  // Speak translated captions in (near) real-time by speaking only the delta since the last translated caption.
+  useEffect(() => {
+    const next = (translatedCaption || '').trim()
+    if (!next) return
+
+    const prev = lastTranslatedCaptionRef.current
+    const delta = computeDelta(prev, next)
+    lastTranslatedCaptionRef.current = next
+
+    if (!delta) return
+
+    const lang = getSpeechRecognitionLang(targetLanguage)
+    const now = Date.now()
+    const maxLatencyMs = 900
+    const debounceMs = 300
+
+    // Add delta to buffer (avoid tiny one-word utterances)
+    deltaBufferRef.current = `${deltaBufferRef.current} ${delta}`.trim()
+
+    const endsWithPunctuation = /[.!?…。！？]$/.test(delta)
+    const bufferLongEnough = deltaBufferRef.current.length >= 28
+    const exceededMaxLatency = lastDeltaFlushAtRef.current > 0 && now - lastDeltaFlushAtRef.current >= maxLatencyMs
+
+    if (endsWithPunctuation || bufferLongEnough || exceededMaxLatency) {
+      if (deltaFlushTimerRef.current) {
+        window.clearTimeout(deltaFlushTimerRef.current)
+        deltaFlushTimerRef.current = null
+      }
+      flushDeltaBuffer(lang)
+      return
+    }
+
+    if (deltaFlushTimerRef.current) {
+      window.clearTimeout(deltaFlushTimerRef.current)
+    }
+    deltaFlushTimerRef.current = window.setTimeout(() => {
+      deltaFlushTimerRef.current = null
+      flushDeltaBuffer(lang)
+    }, debounceMs)
+  }, [translatedCaption, targetLanguage])
+
+  // Ensure voices are loaded (some browsers load them async)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+
+    const synth = window.speechSynthesis
+    const loadVoices = () => {
+      const voices = synth.getVoices()
+      if (voices && voices.length > 0) {
+        setTtsVoicesReady(true)
+      }
+    }
+
+    loadVoices()
+    synth.addEventListener('voiceschanged', loadVoices)
+    return () => {
+      synth.removeEventListener('voiceschanged', loadVoices)
+    }
+  }, [])
 
   // Setup video element with stream or URL (only run when stream/URL changes)
   useEffect(() => {
@@ -261,8 +503,14 @@ export default function VideoPlayer({
 
         // Show interim results immediately for real-time feel
         if (interimTranscript.trim()) {
-          setCurrentCaption(interimTranscript.trim())
-          // Don't translate interim results to reduce API calls
+          const interimText = interimTranscript.trim()
+          setCurrentCaption(interimText)
+          // Translate/speak interim text on a throttle to approximate word-by-word
+          const interimThrottleMs = 2000
+          if (now - lastInterimTranslateAtRef.current >= interimThrottleMs) {
+            lastInterimTranslateAtRef.current = now
+            translateText(interimText, captionLanguage, targetLanguage, false, false)
+          }
         }
         
         // Process final results
@@ -270,7 +518,8 @@ export default function VideoPlayer({
           const finalText = finalTranscript.trim()
           setCurrentCaption(finalText)
           // Only translate final results to reduce API calls and avoid rate limiting
-          translateText(finalText, captionLanguage, targetLanguage)
+          // Only update caption translation; speaking is driven by translatedCaption delta effect
+          translateText(finalText, captionLanguage, targetLanguage, true, false)
           
           // Store final transcript segment
           const segmentEndTime = Date.now()
@@ -478,6 +727,7 @@ export default function VideoPlayer({
 
   const togglePlay = () => {
     if (videoRef.current) {
+      unlockTts()
       if (isPlaying) {
         videoRef.current.pause()
       } else {
@@ -672,10 +922,13 @@ export default function VideoPlayer({
             ref={videoRef}
             src={videoUrl}
             className="max-w-full max-h-full"
-            onClick={togglePlay}
+            onClick={() => {
+              unlockTts()
+              togglePlay()
+            }}
             autoPlay={isLive}
             playsInline
-            muted={isLive && isMuted}
+            muted={isLive ? true : isMuted}
             onLoadedMetadata={() => {
               if (isLive && videoRef.current) {
                 console.log('Live video metadata loaded')
