@@ -128,6 +128,7 @@ export default function LiveCameraInterface({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           deviceId: { exact: selectedDeviceId },
+          facingMode: 'environment',
           width: { ideal: 1280 },
           height: { ideal: 720 }
         },

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Play, Pause, Volume2, VolumeX, Settings, Maximize, Minimize, X, Sparkles } from 'lucide-react'
+import { Play, Pause, Maximize, Minimize, X, Sparkles } from 'lucide-react'
 import BoundingBoxDrawer from './BoundingBoxDrawer'
 import InteractionLog from './InteractionLog'
 import CaptionDisplay from './CaptionDisplay'
@@ -25,6 +25,8 @@ interface VideoPlayerProps {
   targetLanguage: string
   aiLanguage?: string
   isLive?: boolean
+  externalCaption?: string
+  disableInternalTranscription?: boolean
 }
 
 export default function VideoPlayer({
@@ -35,17 +37,17 @@ export default function VideoPlayer({
   targetLanguage,
   aiLanguage,
   isLive = false,
+  externalCaption = '',
+  disableInternalTranscription = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
-  const [volume, setVolume] = useState(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isPaused, setIsPaused] = useState(true)
-  const [showBoundingBoxDrawer, setShowBoundingBoxDrawer] = useState(true) // Always enabled for live streams
+  const [showBoundingBoxDrawer, setShowBoundingBoxDrawer] = useState(false)
   const [drawnBox, setDrawnBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [showQuestionPanel, setShowQuestionPanel] = useState(false)
   const [interactions, setInteractions] = useState<Interaction[]>([])
@@ -54,26 +56,14 @@ export default function VideoPlayer({
   const [transcript, setTranscript] = useState<Array<{ start: number; end: number; text: string }>>([])
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [isTranslating, setIsTranslating] = useState(false)
-  const [showAccessibility, setShowAccessibility] = useState(false)
-  const [playbackRate, setPlaybackRate] = useState(1)
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [showAnswerPopup, setShowAnswerPopup] = useState(false)
   const [currentAnswer, setCurrentAnswer] = useState({ question: '', answer: '' })
   const [sessionStartTime, setSessionStartTime] = useState<number>(0)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const transcriptHistoryRef = useRef<Array<{ start: number; end: number; text: string }>>([])
-  const ttsUnlockedRef = useRef(false)
-  const lastSpokenTextRef = useRef('')
   const lastInterimTranslateAtRef = useRef(0)
   const abortTranslateRef = useRef<AbortController | null>(null)
-  const [ttsVoicesReady, setTtsVoicesReady] = useState(false)
-  const pendingSpeechRef = useRef<{ text: string; language: string; interrupt: boolean } | null>(null)
-  const lastTranslatedCaptionRef = useRef('')
-  const speechQueueRef = useRef<Array<{ text: string; language: string }>>([])
-  const isQueueSpeakingRef = useRef(false)
-  const deltaBufferRef = useRef('')
-  const deltaFlushTimerRef = useRef<number | null>(null)
-  const lastDeltaFlushAtRef = useRef(0)
   
   // Map language codes to Web Speech API BCP-47 format
   const getSpeechRecognitionLang = (langCode: string): string => {
@@ -106,18 +96,27 @@ export default function VideoPlayer({
     text: string,
     from: string,
     to: string,
-    interruptSpeech: boolean = false,
-    speak: boolean = true
+    interruptSpeech: boolean = false
   ) => {
+    console.log('🔄 translateText START:', { text: text.slice(0, 30), from, to, isLive })
+    
     // Only translate for live streams when languages differ
-    if (!isLive || !text.trim() || from === to) {
+    if (!isLive) {
+      console.log('⚠️ Not translating: not live')
       setTranslatedCaption(text)
-      if (speak) {
-        speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
-      }
+      return
+    }
+    if (!text.trim()) {
+      console.log('⚠️ Not translating: empty text')
+      return
+    }
+    if (from === to) {
+      console.log('⚠️ Not translating: same language')
+      setTranslatedCaption(text)
       return
     }
 
+    console.log('✅ Conditions met, calling translation API...')
     setIsTranslating(true)
     try {
       if (abortTranslateRef.current) {
@@ -135,234 +134,24 @@ export default function VideoPlayer({
 
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Translation success:', data.translatedText?.slice(0, 50))
         setTranslatedCaption(data.translatedText)
-        if (speak) {
-          speakText(data.translatedText, getSpeechRecognitionLang(to), interruptSpeech)
-        }
       } else {
-        console.error('Translation API error:', response.statusText)
+        console.error('❌ Translation API error:', response.statusText)
         setTranslatedCaption(text) // Fallback to original text
-        if (speak) {
-          speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
-        }
       }
     } catch (error) {
       if ((error as any)?.name === 'AbortError') {
+        console.log('⚠️ Translation aborted')
         return
       }
-      console.error('Translation error:', error)
+      console.error('❌ Translation error:', error)
       setTranslatedCaption(text) // Fallback to original text
-      if (speak) {
-        speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
-      }
     } finally {
       setIsTranslating(false)
     }
   }
 
-  // Text-to-Speech function using Web Speech Synthesis API
-  const speakText = (text: string, language: string, interrupt: boolean = false) => {
-    if (document.visibilityState === 'hidden') return
-    if (!text.trim()) return
-    const normalized = text.trim()
-    if (normalized === lastSpokenTextRef.current) return
-
-    if (!ttsUnlockedRef.current) {
-      pendingSpeechRef.current = { text: normalized, language, interrupt }
-      return
-    }
-
-    // Avoid canceling too aggressively (Chrome can end up never speaking)
-    if (speechSynthesis.speaking) {
-      if (!interrupt) return
-      speechSynthesis.cancel()
-    }
-
-    const utterance = new SpeechSynthesisUtterance(normalized)
-    utterance.lang = language
-    utterance.rate = 1
-    utterance.pitch = 1
-    utterance.volume = 1
-
-    utterance.onstart = () => {
-      console.log('🔊 TTS start', { language, text: normalized.slice(0, 80) })
-    }
-    utterance.onend = () => {
-      console.log('🔊 TTS end')
-    }
-    utterance.onerror = (e) => {
-      console.error('🔊 TTS error', e)
-    }
-
-    // Find a voice that matches the language
-    const voices = speechSynthesis.getVoices()
-    const matchingVoice = voices.find(voice => voice.lang.startsWith(language.split('-')[0]))
-    if (matchingVoice) {
-      utterance.voice = matchingVoice
-    }
-
-    speechSynthesis.speak(utterance)
-    lastSpokenTextRef.current = normalized
-  }
-
-  const enqueueSpeech = (text: string, language: string) => {
-    const normalized = text.trim()
-    if (!normalized) return
-    speechQueueRef.current.push({ text: normalized, language })
-  }
-
-  const speakNextFromQueue = () => {
-    if (isQueueSpeakingRef.current) return
-    if (!ttsUnlockedRef.current) return
-    if (document.visibilityState === 'hidden') return
-
-    const next = speechQueueRef.current.shift()
-    if (!next) return
-
-    isQueueSpeakingRef.current = true
-    const utterance = new SpeechSynthesisUtterance(next.text)
-    utterance.lang = next.language
-    utterance.rate = 1.2
-    utterance.pitch = 1
-    utterance.volume = 1
-
-    const voices = speechSynthesis.getVoices()
-    const matchingVoice = voices.find(voice => voice.lang.startsWith(next.language.split('-')[0]))
-    if (matchingVoice) {
-      utterance.voice = matchingVoice
-    }
-
-    utterance.onend = () => {
-      isQueueSpeakingRef.current = false
-      speakNextFromQueue()
-    }
-    utterance.onerror = () => {
-      isQueueSpeakingRef.current = false
-      speakNextFromQueue()
-    }
-
-    speechSynthesis.speak(utterance)
-  }
-
-  const flushDeltaBuffer = (language: string) => {
-    const buffered = deltaBufferRef.current.trim()
-    if (!buffered) return
-
-    deltaBufferRef.current = ''
-    lastDeltaFlushAtRef.current = Date.now()
-    enqueueSpeech(buffered, language)
-    speakNextFromQueue()
-  }
-
-  const computeDelta = (prev: string, next: string) => {
-    const p = prev.trim()
-    const n = next.trim()
-    if (!p) return n
-    if (!n) return ''
-    if (n === p) return ''
-    if (n.startsWith(p)) {
-      return n.slice(p.length).trim()
-    }
-
-    // Fallback: compute common prefix length
-    const minLen = Math.min(p.length, n.length)
-    let i = 0
-    while (i < minLen && p[i] === n[i]) i++
-    return n.slice(i).trim()
-  }
-
-  const unlockTts = () => {
-    if (ttsUnlockedRef.current) return
-    try {
-      const u = new SpeechSynthesisUtterance('')
-      u.volume = 0
-      speechSynthesis.speak(u)
-      speechSynthesis.cancel()
-      ttsUnlockedRef.current = true
-
-       if (pendingSpeechRef.current) {
-         const pending = pendingSpeechRef.current
-         pendingSpeechRef.current = null
-         speakText(pending.text, pending.language, pending.interrupt)
-       }
-
-       speakNextFromQueue()
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  // Chrome often requires a user gesture before speech will play.
-  // Unlock on the first pointer/keyboard gesture anywhere on the page.
-  useEffect(() => {
-    const handleFirstGesture = () => unlockTts()
-    window.addEventListener('pointerdown', handleFirstGesture, { once: true })
-    window.addEventListener('keydown', handleFirstGesture, { once: true })
-    return () => {
-      window.removeEventListener('pointerdown', handleFirstGesture)
-      window.removeEventListener('keydown', handleFirstGesture)
-    }
-  }, [])
-
-  // Speak translated captions in (near) real-time by speaking only the delta since the last translated caption.
-  useEffect(() => {
-    const next = (translatedCaption || '').trim()
-    if (!next) return
-
-    const prev = lastTranslatedCaptionRef.current
-    const delta = computeDelta(prev, next)
-    lastTranslatedCaptionRef.current = next
-
-    if (!delta) return
-
-    const lang = getSpeechRecognitionLang(targetLanguage)
-    const now = Date.now()
-    const maxLatencyMs = 900
-    const debounceMs = 300
-
-    // Add delta to buffer (avoid tiny one-word utterances)
-    deltaBufferRef.current = `${deltaBufferRef.current} ${delta}`.trim()
-
-    const endsWithPunctuation = /[.!?…。！？]$/.test(delta)
-    const bufferLongEnough = deltaBufferRef.current.length >= 28
-    const exceededMaxLatency = lastDeltaFlushAtRef.current > 0 && now - lastDeltaFlushAtRef.current >= maxLatencyMs
-
-    if (endsWithPunctuation || bufferLongEnough || exceededMaxLatency) {
-      if (deltaFlushTimerRef.current) {
-        window.clearTimeout(deltaFlushTimerRef.current)
-        deltaFlushTimerRef.current = null
-      }
-      flushDeltaBuffer(lang)
-      return
-    }
-
-    if (deltaFlushTimerRef.current) {
-      window.clearTimeout(deltaFlushTimerRef.current)
-    }
-    deltaFlushTimerRef.current = window.setTimeout(() => {
-      deltaFlushTimerRef.current = null
-      flushDeltaBuffer(lang)
-    }, debounceMs)
-  }, [translatedCaption, targetLanguage])
-
-  // Ensure voices are loaded (some browsers load them async)
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
-
-    const synth = window.speechSynthesis
-    const loadVoices = () => {
-      const voices = synth.getVoices()
-      if (voices && voices.length > 0) {
-        setTtsVoicesReady(true)
-      }
-    }
-
-    loadVoices()
-    synth.addEventListener('voiceschanged', loadVoices)
-    return () => {
-      synth.removeEventListener('voiceschanged', loadVoices)
-    }
-  }, [])
 
   // Setup video element with stream or URL (only run when stream/URL changes)
   useEffect(() => {
@@ -434,15 +223,40 @@ export default function VideoPlayer({
     }
   }, [isLive, sessionStartTime]) // Only depend on isLive and sessionStartTime
 
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = playbackRate
-    }
-  }, [playbackRate])
 
-  // Real-time transcription for live streams using Web Speech API
+  // Track fullscreen state changes
   useEffect(() => {
-    if (!isLive || !liveStream) {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
+  // Use external caption when provided (phone always sends English)
+  useEffect(() => {
+    if (externalCaption) {
+      console.log('📝 External caption:', externalCaption.slice(0, 50))
+      console.log('🌍 Target language:', targetLanguage, 'isLive:', isLive)
+      setCurrentCaption(externalCaption)
+      // Phone always transcribes in English, translate to target language
+      if (targetLanguage !== 'en') {
+        console.log('🔄 Calling translateText from en to', targetLanguage)
+        translateText(externalCaption, 'en', targetLanguage)
+      } else {
+        // English target, just set the caption
+        console.log('✅ No translation needed (English)')
+        setTranslatedCaption(externalCaption)
+      }
+    }
+  }, [externalCaption, targetLanguage])
+
+  // Start transcription for live streams
+  useEffect(() => {
+    if (!isLive || !liveStream || disableInternalTranscription) {
       setIsTranscribing(false)
       return
     }
@@ -509,7 +323,7 @@ export default function VideoPlayer({
           const interimThrottleMs = 2000
           if (now - lastInterimTranslateAtRef.current >= interimThrottleMs) {
             lastInterimTranslateAtRef.current = now
-            translateText(interimText, captionLanguage, targetLanguage, false, false)
+            translateText(interimText, captionLanguage, targetLanguage)
           }
         }
         
@@ -519,7 +333,7 @@ export default function VideoPlayer({
           setCurrentCaption(finalText)
           // Only translate final results to reduce API calls and avoid rate limiting
           // Only update caption translation; speaking is driven by translatedCaption delta effect
-          translateText(finalText, captionLanguage, targetLanguage, true, false)
+          translateText(finalText, captionLanguage, targetLanguage)
           
           // Store final transcript segment
           const segmentEndTime = Date.now()
@@ -727,7 +541,6 @@ export default function VideoPlayer({
 
   const togglePlay = () => {
     if (videoRef.current) {
-      unlockTts()
       if (isPlaying) {
         videoRef.current.pause()
       } else {
@@ -736,20 +549,6 @@ export default function VideoPlayer({
     }
   }
 
-  const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted
-      setIsMuted(!isMuted)
-    }
-  }
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value)
-    if (videoRef.current) {
-      videoRef.current.volume = newVolume
-      setVolume(newVolume)
-    }
-  }
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isLive) return // Can't seek in live streams
@@ -760,15 +559,25 @@ export default function VideoPlayer({
     }
   }
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = async () => {
     if (!containerRef.current) return
 
     if (!isFullscreen) {
-      containerRef.current.requestFullscreen()
-      setIsFullscreen(true)
+      try {
+        await containerRef.current.requestFullscreen()
+        setIsFullscreen(true)
+      } catch (err) {
+        console.error('Failed to enter fullscreen:', err)
+      }
     } else {
-      document.exitFullscreen()
-      setIsFullscreen(false)
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen()
+        }
+        setIsFullscreen(false)
+      } catch (err) {
+        console.error('Failed to exit fullscreen:', err)
+      }
     }
   }
 
@@ -922,13 +731,10 @@ export default function VideoPlayer({
             ref={videoRef}
             src={videoUrl}
             className="max-w-full max-h-full"
-            onClick={() => {
-              unlockTts()
-              togglePlay()
-            }}
+            onClick={togglePlay}
             autoPlay={isLive}
             playsInline
-            muted={isLive ? true : isMuted}
+            muted={isLive}
             onLoadedMetadata={() => {
               if (isLive && videoRef.current) {
                 console.log('Live video metadata loaded')
@@ -1064,10 +870,18 @@ export default function VideoPlayer({
               </p>
             </div>
           )}
-        </div>
 
-        {/* Video Controls */}
-        <div className="bg-gray-800 p-4">
+          {/* Answer Popup - positioned absolutely to show in fullscreen */}
+          {showAnswerPopup && (
+            <AnswerPopup
+              question={currentAnswer.question}
+              answer={currentAnswer.answer}
+              onClose={() => setShowAnswerPopup(false)}
+            />
+          )}
+
+          {/* Video Controls - positioned absolutely to show in fullscreen */}
+          <div className="absolute bottom-0 left-0 right-0 bg-gray-800 p-4">
           <div className="flex items-center gap-4 mb-2">
             <button
               onClick={togglePlay}
@@ -1080,26 +894,18 @@ export default function VideoPlayer({
               )}
             </button>
 
-            <button
-              onClick={toggleMute}
-              className="p-2 hover:bg-gray-700 rounded transition-colors"
-            >
-              {isMuted ? (
-                <VolumeX className="w-5 h-5 text-white" />
-              ) : (
-                <Volume2 className="w-5 h-5 text-white" />
-              )}
-            </button>
-
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              onChange={handleVolumeChange}
-              className="w-24"
-            />
+            {isLive && (
+              <button
+                onClick={() => setShowBoundingBoxDrawer(!showBoundingBoxDrawer)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  showBoundingBoxDrawer
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                Draw Box
+              </button>
+            )}
 
             <div className="flex-1">
               <input
@@ -1125,14 +931,6 @@ export default function VideoPlayer({
               )}
             </span>
 
-
-            <button
-              onClick={() => setShowAccessibility(!showAccessibility)}
-              className="p-2 hover:bg-gray-700 rounded transition-colors"
-            >
-              <Settings className="w-5 h-5 text-white" />
-            </button>
-
             <button
               onClick={toggleFullscreen}
               className="p-2 hover:bg-gray-700 rounded transition-colors"
@@ -1144,18 +942,8 @@ export default function VideoPlayer({
               )}
             </button>
           </div>
+          </div>
         </div>
-
-        {/* Accessibility Panel */}
-        {showAccessibility && (
-          <AccessibilityPanel
-            playbackRate={playbackRate}
-            onPlaybackRateChange={setPlaybackRate}
-            captionSize={captionSize}
-            onCaptionSizeChange={setCaptionSize}
-            onClose={() => setShowAccessibility(false)}
-          />
-        )}
       </div>
 
       {/* Interaction Log Sidebar */}
@@ -1164,15 +952,6 @@ export default function VideoPlayer({
         onJumpToTimestamp={handleJumpToTimestamp}
         currentTime={currentTime}
       />
-
-      {/* Answer Popup */}
-      {showAnswerPopup && (
-        <AnswerPopup
-          question={currentAnswer.question}
-          answer={currentAnswer.answer}
-          onClose={() => setShowAnswerPopup(false)}
-        />
-      )}
     </div>
   )
 }

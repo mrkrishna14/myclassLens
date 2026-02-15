@@ -79,17 +79,17 @@ export default function BoundingBoxDrawer({ onComplete, onCancel }: BoundingBoxD
         />
       )}
       
-      <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white p-3 rounded-lg">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="font-medium">Draw a box around the area you want to ask about</span>
+      <div className="absolute top-6 left-6 bg-white border border-gray-200 shadow-lg rounded-xl p-4 max-w-md">
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-medium text-gray-900">Draw a box around the area you want to ask about</span>
           <button
             onClick={onCancel}
-            className="ml-2 p-1 hover:bg-gray-700 rounded"
+            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4 text-gray-600" />
           </button>
         </div>
-        <p className="text-sm text-gray-300">Press ESC to cancel</p>
+        <p className="text-sm text-gray-500">Press ESC to cancel</p>
       </div>
     </div>
   )
