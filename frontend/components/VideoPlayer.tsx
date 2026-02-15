@@ -59,21 +59,169 @@ export default function VideoPlayer({
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
   const [showAnswerPopup, setShowAnswerPopup] = useState(false)
   const [currentAnswer, setCurrentAnswer] = useState({ question: '', answer: '' })
+  const [autoFollowEnabled, setAutoFollowEnabled] = useState(true)
+  const [autoFollowStatus, setAutoFollowStatus] = useState<'off' | 'face' | 'motion' | 'unsupported'>('off')
+  const [followPoint, setFollowPoint] = useState({ x: 50, y: 50 })
+  const [liveLayout, setLiveLayout] = useState({
+    containerWidth: 0,
+    containerHeight: 0,
+    videoWidth: 0,
+    videoHeight: 0,
+  })
   const [sessionStartTime, setSessionStartTime] = useState<number>(0)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const transcriptHistoryRef = useRef<Array<{ start: number; end: number; text: string }>>([])
+  const trackingIntervalRef = useRef<number | null>(null)
+  const isTrackingFrameRef = useRef(false)
+  const followPointRef = useRef({ x: 50, y: 50 })
+  const faceDetectorRef = useRef<any>(null)
+  const motionCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const previousMotionFrameRef = useRef<Uint8ClampedArray | null>(null)
   const ttsUnlockedRef = useRef(false)
   const lastSpokenTextRef = useRef('')
   const lastInterimTranslateAtRef = useRef(0)
-  const abortTranslateRef = useRef<AbortController | null>(null)
+  const lastInterimSourceRef = useRef('')
+  const lastFinalSourceRef = useRef('')
+  const translationCacheRef = useRef<Record<string, string>>({})
+  const isTranslationInFlightRef = useRef(false)
+  const pendingTranslationRef = useRef<{
+    text: string
+    from: string
+    to: string
+    interruptSpeech: boolean
+    speak: boolean
+  } | null>(null)
   const [ttsVoicesReady, setTtsVoicesReady] = useState(false)
   const pendingSpeechRef = useRef<{ text: string; language: string; interrupt: boolean } | null>(null)
   const lastTranslatedCaptionRef = useRef('')
   const speechQueueRef = useRef<Array<{ text: string; language: string }>>([])
   const isQueueSpeakingRef = useRef(false)
+  const recentSpeechKeysRef = useRef<Map<string, number>>(new Map())
+  const lastQueuedSpeechKeyRef = useRef('')
+  const lastDeltaKeyRef = useRef('')
+  const lastDeltaAtRef = useRef(0)
   const deltaBufferRef = useRef('')
   const deltaFlushTimerRef = useRef<number | null>(null)
   const lastDeltaFlushAtRef = useRef(0)
+
+  const clampNumber = useCallback((value: number, min: number, max: number) => {
+    return Math.min(max, Math.max(min, value))
+  }, [])
+
+  const normalizeSpeechKey = (text: string) => {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  const updateFollowPoint = useCallback((targetX: number, targetY: number) => {
+    const previous = followPointRef.current
+
+    // Boost horizontal target so board traversal (left -> right) tracks more aggressively.
+    const horizontalBoost = targetX >= 50 ? 1.28 : 1.12
+    const adjustedTargetX = clampNumber(50 + (targetX - 50) * horizontalBoost, 0, 100)
+    const adjustedTargetY = clampNumber(targetY, 0, 100)
+
+    const rawDeltaX = adjustedTargetX - previous.x
+    const rawDeltaY = adjustedTargetY - previous.y
+
+    // Deadzone removes micro-jitter but keeps larger moves responsive.
+    const deltaX = Math.abs(rawDeltaX) < 0.45 ? 0 : rawDeltaX
+    const deltaY = Math.abs(rawDeltaY) < 0.35 ? 0 : rawDeltaY
+
+    const smoothingX = 0.54
+    const smoothingY = 0.3
+    const maxStepX = 7.5
+    const maxStepY = 3.8
+
+    const nextX = clampNumber(previous.x + clampNumber(deltaX * smoothingX, -maxStepX, maxStepX), 1, 99)
+    const nextY = clampNumber(previous.y + clampNumber(deltaY * smoothingY, -maxStepY, maxStepY), 10, 90)
+    followPointRef.current = { x: nextX, y: nextY }
+    setFollowPoint({ x: nextX, y: nextY })
+  }, [clampNumber])
+
+  const detectMotionTarget = useCallback((video: HTMLVideoElement): { x: number; y: number } | null => {
+    if (!motionCanvasRef.current) {
+      motionCanvasRef.current = document.createElement('canvas')
+      motionCanvasRef.current.width = 192
+      motionCanvasRef.current.height = 108
+    }
+
+    const canvas = motionCanvasRef.current
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+
+    const width = canvas.width
+    const height = canvas.height
+    ctx.drawImage(video, 0, 0, width, height)
+    const imageData = ctx.getImageData(0, 0, width, height).data
+
+    const currentFrame = new Uint8ClampedArray(width * height)
+    for (let i = 0, pixel = 0; i < imageData.length; i += 4, pixel++) {
+      currentFrame[pixel] = Math.round(
+        imageData[i] * 0.299 + imageData[i + 1] * 0.587 + imageData[i + 2] * 0.114
+      )
+    }
+
+    const previousFrame = previousMotionFrameRef.current
+    previousMotionFrameRef.current = currentFrame
+    if (!previousFrame) return null
+
+    const threshold = 22
+    let changedPixels = 0
+    let sumX = 0
+    let sumY = 0
+
+    for (let i = 0; i < currentFrame.length; i++) {
+      if (Math.abs(currentFrame[i] - previousFrame[i]) > threshold) {
+        changedPixels++
+        const x = i % width
+        const y = Math.floor(i / width)
+        sumX += x
+        sumY += y
+      }
+    }
+
+    const minChangedRatio = 0.008
+    if (changedPixels < width * height * minChangedRatio) return null
+
+    const centroidX = (sumX / changedPixels / width) * 100
+    const centroidY = (sumY / changedPixels / height) * 100
+    const centerX = centroidX * 0.78 + followPointRef.current.x * 0.22
+    const centerY = centroidY * 0.8 + followPointRef.current.y * 0.2
+    return { x: centerX, y: centerY }
+  }, [])
+
+  const measureLiveLayout = useCallback(() => {
+    const container = containerRef.current
+    const video = videoRef.current
+    if (!container || !video) return
+
+    const containerRect = container.getBoundingClientRect()
+    const containerWidth = containerRect.width
+    const containerHeight = containerRect.height
+    const videoWidth = video.videoWidth || 0
+    const videoHeight = video.videoHeight || 0
+
+    setLiveLayout((prev) => {
+      if (
+        prev.containerWidth === containerWidth &&
+        prev.containerHeight === containerHeight &&
+        prev.videoWidth === videoWidth &&
+        prev.videoHeight === videoHeight
+      ) {
+        return prev
+      }
+      return {
+        containerWidth,
+        containerHeight,
+        videoWidth,
+        videoHeight,
+      }
+    })
+  }, [])
   
   // Map language codes to Web Speech API BCP-47 format
   const getSpeechRecognitionLang = (langCode: string): string => {
@@ -109,55 +257,83 @@ export default function VideoPlayer({
     interruptSpeech: boolean = false,
     speak: boolean = true
   ) => {
+    const normalizedText = text.trim()
     // Only translate for live streams when languages differ
-    if (!isLive || !text.trim() || from === to) {
-      setTranslatedCaption(text)
+    if (!isLive || !normalizedText || from === to) {
+      setTranslatedCaption(normalizedText)
       if (speak) {
-        speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
+        speakText(normalizedText, getSpeechRecognitionLang(to), interruptSpeech)
       }
       return
     }
 
-    setIsTranslating(true)
-    try {
-      if (abortTranslateRef.current) {
-        abortTranslateRef.current.abort()
-      }
-      abortTranslateRef.current = new AbortController()
-      const response = await fetch('/api/translate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text, sourceLanguage: from, targetLanguage: to }),
-        signal: abortTranslateRef.current.signal,
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setTranslatedCaption(data.translatedText)
-        if (speak) {
-          speakText(data.translatedText, getSpeechRecognitionLang(to), interruptSpeech)
-        }
-      } else {
-        console.error('Translation API error:', response.statusText)
-        setTranslatedCaption(text) // Fallback to original text
-        if (speak) {
-          speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
-        }
-      }
-    } catch (error) {
-      if ((error as any)?.name === 'AbortError') {
-        return
-      }
-      console.error('Translation error:', error)
-      setTranslatedCaption(text) // Fallback to original text
+    const cacheKey = `${from}:${to}:${normalizedText.toLowerCase()}`
+    const cached = translationCacheRef.current[cacheKey]
+    if (cached) {
+      setTranslatedCaption(cached)
       if (speak) {
-        speakText(text, getSpeechRecognitionLang(to), interruptSpeech)
+        speakText(cached, getSpeechRecognitionLang(to), interruptSpeech)
       }
-    } finally {
-      setIsTranslating(false)
+      return
     }
+
+    const request = { text: normalizedText, from, to, interruptSpeech, speak }
+
+    // Coalesce requests while one is in flight so translation updates don't get starved.
+    if (isTranslationInFlightRef.current) {
+      pendingTranslationRef.current = request
+      return
+    }
+
+    isTranslationInFlightRef.current = true
+    setIsTranslating(true)
+
+    let activeRequest: typeof request | null = request
+    while (activeRequest) {
+      try {
+        const response = await fetch('/api/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: activeRequest.text,
+            sourceLanguage: activeRequest.from,
+            targetLanguage: activeRequest.to,
+          }),
+        })
+
+        let translated = activeRequest.text
+        if (response.ok) {
+          const data = await response.json()
+          translated = (data.translatedText || activeRequest.text).trim()
+        } else {
+          console.error('Translation API error:', response.statusText)
+        }
+
+        translationCacheRef.current[
+          `${activeRequest.from}:${activeRequest.to}:${activeRequest.text.toLowerCase()}`
+        ] = translated
+
+        setTranslatedCaption(translated)
+        if (activeRequest.speak) {
+          speakText(translated, getSpeechRecognitionLang(activeRequest.to), activeRequest.interruptSpeech)
+        }
+      } catch (error) {
+        console.error('Translation error:', error)
+        setTranslatedCaption(activeRequest.text)
+        if (activeRequest.speak) {
+          speakText(activeRequest.text, getSpeechRecognitionLang(activeRequest.to), activeRequest.interruptSpeech)
+        }
+      }
+
+      const queued = pendingTranslationRef.current
+      pendingTranslationRef.current = null
+      activeRequest = queued
+    }
+
+    isTranslationInFlightRef.current = false
+    setIsTranslating(false)
   }
 
   // Text-to-Speech function using Web Speech Synthesis API
@@ -208,7 +384,48 @@ export default function VideoPlayer({
   const enqueueSpeech = (text: string, language: string) => {
     const normalized = text.trim()
     if (!normalized) return
+    const key = normalizeSpeechKey(normalized)
+    if (!key) return
+
+    const now = Date.now()
+    for (const [existingKey, timestamp] of Array.from(recentSpeechKeysRef.current.entries())) {
+      if (now - timestamp > 8000) {
+        recentSpeechKeysRef.current.delete(existingKey)
+      }
+    }
+
+    const lastSeenAt = recentSpeechKeysRef.current.get(key)
+    if (lastQueuedSpeechKeyRef.current === key) return
+    if (lastSeenAt && now - lastSeenAt < 4500) return
+
     speechQueueRef.current.push({ text: normalized, language })
+    recentSpeechKeysRef.current.set(key, now)
+    lastQueuedSpeechKeyRef.current = key
+  }
+
+  const splitIntoSpeechChunks = (text: string, maxWordsPerChunk: number = 4): string[] => {
+    const cleaned = text.trim()
+    if (!cleaned) return []
+
+    const chunks: string[] = []
+    const sentences = cleaned
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?…。！？])\s+/)
+      .filter(Boolean)
+
+    for (const sentence of sentences) {
+      const words = sentence.trim().split(/\s+/).filter(Boolean)
+      if (words.length <= maxWordsPerChunk) {
+        chunks.push(sentence.trim())
+        continue
+      }
+
+      for (let i = 0; i < words.length; i += maxWordsPerChunk) {
+        chunks.push(words.slice(i, i + maxWordsPerChunk).join(' '))
+      }
+    }
+
+    return chunks
   }
 
   const speakNextFromQueue = () => {
@@ -222,7 +439,7 @@ export default function VideoPlayer({
     isQueueSpeakingRef.current = true
     const utterance = new SpeechSynthesisUtterance(next.text)
     utterance.lang = next.language
-    utterance.rate = 1.2
+    utterance.rate = 0.98
     utterance.pitch = 1
     utterance.volume = 1
 
@@ -234,10 +451,16 @@ export default function VideoPlayer({
 
     utterance.onend = () => {
       isQueueSpeakingRef.current = false
+      if (speechQueueRef.current.length === 0) {
+        lastQueuedSpeechKeyRef.current = ''
+      }
       speakNextFromQueue()
     }
     utterance.onerror = () => {
       isQueueSpeakingRef.current = false
+      if (speechQueueRef.current.length === 0) {
+        lastQueuedSpeechKeyRef.current = ''
+      }
       speakNextFromQueue()
     }
 
@@ -250,7 +473,10 @@ export default function VideoPlayer({
 
     deltaBufferRef.current = ''
     lastDeltaFlushAtRef.current = Date.now()
-    enqueueSpeech(buffered, language)
+    const chunks = splitIntoSpeechChunks(buffered, 4)
+    for (const chunk of chunks) {
+      enqueueSpeech(chunk, language)
+    }
     speakNextFromQueue()
   }
 
@@ -315,16 +541,24 @@ export default function VideoPlayer({
 
     if (!delta) return
 
-    const lang = getSpeechRecognitionLang(targetLanguage)
     const now = Date.now()
-    const maxLatencyMs = 900
-    const debounceMs = 300
+    const deltaKey = normalizeSpeechKey(delta)
+    if (deltaKey && deltaKey === lastDeltaKeyRef.current && now - lastDeltaAtRef.current < 2500) {
+      return
+    }
+    lastDeltaKeyRef.current = deltaKey
+    lastDeltaAtRef.current = now
 
-    // Add delta to buffer (avoid tiny one-word utterances)
+    const lang = getSpeechRecognitionLang(targetLanguage)
+    const maxLatencyMs = 520
+    const debounceMs = 130
+
+    // Add delta to buffer and flush in small chunks for speech pacing.
     deltaBufferRef.current = `${deltaBufferRef.current} ${delta}`.trim()
 
     const endsWithPunctuation = /[.!?…。！？]$/.test(delta)
-    const bufferLongEnough = deltaBufferRef.current.length >= 28
+    const bufferWordCount = deltaBufferRef.current.split(/\s+/).filter(Boolean).length
+    const bufferLongEnough = bufferWordCount >= 4
     const exceededMaxLatency = lastDeltaFlushAtRef.current > 0 && now - lastDeltaFlushAtRef.current >= maxLatencyMs
 
     if (endsWithPunctuation || bufferLongEnough || exceededMaxLatency) {
@@ -363,6 +597,115 @@ export default function VideoPlayer({
       synth.removeEventListener('voiceschanged', loadVoices)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isLive) return
+
+    const onResize = () => measureLiveLayout()
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+    }
+  }, [isLive, measureLiveLayout])
+
+  // Auto-follow framing for live camera: track the speaker and keep them centered.
+  useEffect(() => {
+    if (trackingIntervalRef.current) {
+      window.clearInterval(trackingIntervalRef.current)
+      trackingIntervalRef.current = null
+    }
+    isTrackingFrameRef.current = false
+    previousMotionFrameRef.current = null
+
+    if (!isLive || !liveStream || !autoFollowEnabled) {
+      setAutoFollowStatus('off')
+      const center = { x: 50, y: 50 }
+      followPointRef.current = center
+      setFollowPoint(center)
+      return
+    }
+
+    const video = videoRef.current
+    if (!video) return
+
+    let cancelled = false
+    let canUseMotion = false
+
+    try {
+      canUseMotion = !!document.createElement('canvas').getContext('2d')
+    } catch (error) {
+      canUseMotion = false
+    }
+
+    const FaceDetectorCtor = (window as any).FaceDetector
+    faceDetectorRef.current = null
+
+    if (FaceDetectorCtor) {
+      try {
+        faceDetectorRef.current = new FaceDetectorCtor({
+          fastMode: true,
+          maxDetectedFaces: 1,
+        })
+        setAutoFollowStatus('face')
+      } catch (error) {
+        console.warn('FaceDetector unavailable, falling back to motion tracking')
+        setAutoFollowStatus(canUseMotion ? 'motion' : 'unsupported')
+      }
+    } else {
+      setAutoFollowStatus(canUseMotion ? 'motion' : 'unsupported')
+    }
+
+    if (!faceDetectorRef.current && !canUseMotion) {
+      return
+    }
+
+    trackingIntervalRef.current = window.setInterval(async () => {
+      if (cancelled || isTrackingFrameRef.current) return
+
+      const activeVideo = videoRef.current
+      if (!activeVideo || activeVideo.readyState < 2 || !activeVideo.videoWidth || !activeVideo.videoHeight) {
+        return
+      }
+
+      isTrackingFrameRef.current = true
+      try {
+        let foundTarget = false
+
+        if (faceDetectorRef.current) {
+          const faces = await faceDetectorRef.current.detect(activeVideo)
+          if (faces?.length) {
+            const face = faces[0].boundingBox
+            const targetX = ((face.x + face.width / 2) / activeVideo.videoWidth) * 100
+            const targetY = ((face.y + face.height * 0.5) / activeVideo.videoHeight) * 100
+            updateFollowPoint(targetX, targetY)
+            foundTarget = true
+          }
+        }
+
+        if (!foundTarget && canUseMotion) {
+          const motionTarget = detectMotionTarget(activeVideo)
+          if (motionTarget) {
+            updateFollowPoint(motionTarget.x, motionTarget.y)
+          }
+        }
+      } catch (error) {
+        console.warn('Auto-follow tracking error:', error)
+      } finally {
+        isTrackingFrameRef.current = false
+      }
+    }, 70)
+
+    return () => {
+      cancelled = true
+      if (trackingIntervalRef.current) {
+        window.clearInterval(trackingIntervalRef.current)
+        trackingIntervalRef.current = null
+      }
+      isTrackingFrameRef.current = false
+      previousMotionFrameRef.current = null
+    }
+  }, [isLive, liveStream, autoFollowEnabled, detectMotionTarget, updateFollowPoint])
 
   // Setup video element with stream or URL (only run when stream/URL changes)
   useEffect(() => {
@@ -506,8 +849,12 @@ export default function VideoPlayer({
           const interimText = interimTranscript.trim()
           setCurrentCaption(interimText)
           // Translate/speak interim text on a throttle to approximate word-by-word
-          const interimThrottleMs = 2000
-          if (now - lastInterimTranslateAtRef.current >= interimThrottleMs) {
+          const interimThrottleMs = 450
+          if (
+            interimText !== lastInterimSourceRef.current &&
+            now - lastInterimTranslateAtRef.current >= interimThrottleMs
+          ) {
+            lastInterimSourceRef.current = interimText
             lastInterimTranslateAtRef.current = now
             translateText(interimText, captionLanguage, targetLanguage, false, false)
           }
@@ -519,7 +866,11 @@ export default function VideoPlayer({
           setCurrentCaption(finalText)
           // Only translate final results to reduce API calls and avoid rate limiting
           // Only update caption translation; speaking is driven by translatedCaption delta effect
-          translateText(finalText, captionLanguage, targetLanguage, true, false)
+          if (finalText !== lastFinalSourceRef.current) {
+            lastFinalSourceRef.current = finalText
+            lastInterimSourceRef.current = ''
+            translateText(finalText, captionLanguage, targetLanguage, true, false)
+          }
           
           // Store final transcript segment
           const segmentEndTime = Date.now()
@@ -563,6 +914,9 @@ export default function VideoPlayer({
 
       recognition.onstart = () => {
         console.log('✅ Speech recognition started successfully')
+        unlockTts()
+        lastInterimSourceRef.current = ''
+        lastFinalSourceRef.current = ''
         setIsTranscribing(true)
         // Clear any error messages when recognition starts
         setCurrentCaption((prev) => {
@@ -910,18 +1264,76 @@ export default function VideoPlayer({
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  const hasLiveFrame =
+    liveLayout.videoWidth > 0 &&
+    liveLayout.videoHeight > 0 &&
+    liveLayout.containerWidth > 0 &&
+    liveLayout.containerHeight > 0
+  const horizontalEdge = Math.abs(followPoint.x - 50) / 50
+  const targetZoom = 1.75 + horizontalEdge * 0.28
+  const liveZoom =
+    isLive && autoFollowEnabled && autoFollowStatus !== 'unsupported' && hasLiveFrame ? targetZoom : 1
+  const containerRatio =
+    liveLayout.containerHeight > 0 ? liveLayout.containerWidth / liveLayout.containerHeight : 0
+  const videoRatio = liveLayout.videoHeight > 0 ? liveLayout.videoWidth / liveLayout.videoHeight : 0
+  let displayWidth = 0
+  let displayHeight = 0
+  if (containerRatio > 0 && videoRatio > 0) {
+    // Live camera is rendered with object-cover, so the video must always fill the container.
+    if (videoRatio > containerRatio) {
+      displayHeight = liveLayout.containerHeight
+      displayWidth = liveLayout.containerHeight * videoRatio
+    } else {
+      displayWidth = liveLayout.containerWidth
+      displayHeight = liveLayout.containerWidth / videoRatio
+    }
+  }
+  const sourceToDisplayX = displayWidth > 0 ? liveLayout.videoWidth / displayWidth : 1
+  const sourceToDisplayY = displayHeight > 0 ? liveLayout.videoHeight / displayHeight : 1
+  const sourceDetailRatio = Math.min(sourceToDisplayX, sourceToDisplayY)
+  const maxQualityZoom = clampNumber(1 + Math.max(0, sourceDetailRatio - 1) * 1.12, 1.25, 2.05)
+  const effectiveLiveZoom = Math.min(liveZoom, maxQualityZoom)
+  const scaledWidth = displayWidth * effectiveLiveZoom
+  const scaledHeight = displayHeight * effectiveLiveZoom
+  const maxPanX = Math.max(0, (scaledWidth - liveLayout.containerWidth) / 2)
+  const maxPanY = Math.max(0, (scaledHeight - liveLayout.containerHeight) / 2)
+  const maxPanPercentX = displayWidth > 0 ? (maxPanX / displayWidth) * 100 : 0
+  const maxPanPercentY = displayHeight > 0 ? (maxPanY / displayHeight) * 100 : 0
+  const panGainX = 1.65
+  const panGainY = 0.95
+  const liveTranslateX =
+    effectiveLiveZoom > 1
+      ? clampNumber(((50 - followPoint.x) / 50) * maxPanPercentX * panGainX, -maxPanPercentX, maxPanPercentX)
+      : 0
+  const liveTranslateY =
+    effectiveLiveZoom > 1
+      ? clampNumber(((50 - followPoint.y) / 50) * maxPanPercentY * panGainY, -maxPanPercentY, maxPanPercentY)
+      : 0
+
   return (
     <div className="flex h-screen bg-gray-900">
       {/* Main Video Area */}
       <div className="flex-1 flex flex-col">
         <div
           ref={containerRef}
-          className="relative flex-1 bg-black flex items-center justify-center"
+          className="relative flex-1 bg-black flex items-center justify-center overflow-hidden"
         >
           <video
             ref={videoRef}
             src={videoUrl}
-            className="max-w-full max-h-full"
+            className={
+              isLive
+                ? 'absolute inset-0 w-full h-full object-cover transition-transform duration-180 ease-out will-change-transform'
+                : 'max-w-full max-h-full'
+            }
+            style={
+              isLive
+                ? {
+                    transform: `translate3d(${liveTranslateX}%, ${liveTranslateY}%, 0) scale(${effectiveLiveZoom})`,
+                    transformOrigin: 'center center',
+                  }
+                : undefined
+            }
             onClick={() => {
               unlockTts()
               togglePlay()
@@ -932,6 +1344,7 @@ export default function VideoPlayer({
             onLoadedMetadata={() => {
               if (isLive && videoRef.current) {
                 console.log('Live video metadata loaded')
+                measureLiveLayout()
               }
             }}
             onCanPlay={() => {
@@ -940,12 +1353,33 @@ export default function VideoPlayer({
                   console.error('Auto-play prevented:', err)
                 })
               }
+              if (isLive) {
+                measureLiveLayout()
+              }
             }}
           />
 
+          {isLive && (
+            <div className="absolute top-4 left-4 z-30 flex flex-col gap-2">
+              <button
+                onClick={() => setAutoFollowEnabled((prev) => !prev)}
+                className="bg-black/70 text-white text-xs px-3 py-2 rounded-lg border border-white/20 hover:bg-black/80 transition-colors"
+              >
+                {autoFollowEnabled ? 'Auto Follow: ON' : 'Auto Follow: OFF'}
+              </button>
+              {autoFollowEnabled && autoFollowStatus !== 'off' && (
+                <div className="bg-black/60 text-white/90 text-[11px] px-3 py-1.5 rounded-lg border border-white/10">
+                  {autoFollowStatus === 'face' && 'Tracking: Face'}
+                  {autoFollowStatus === 'motion' && 'Tracking: Motion'}
+                  {autoFollowStatus === 'unsupported' && 'Tracking unavailable in this browser'}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Transcription Loading Indicator - only show if actually transcribing */}
           {isTranscribing && !currentCaption && (
-            <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
+            <div className="absolute top-20 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 <span className="text-sm">Starting transcription...</span>

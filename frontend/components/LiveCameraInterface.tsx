@@ -128,11 +128,35 @@ export default function LiveCameraInterface({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           deviceId: { exact: selectedDeviceId },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 60 },
         },
         audio: true,
       })
+
+      // Ask for the highest supported quality on the chosen camera track.
+      const videoTrack = stream.getVideoTracks()[0]
+      if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
+        const caps: any = videoTrack.getCapabilities()
+        try {
+          const bestWidth = typeof caps?.width?.max === 'number' ? caps.width.max : 1920
+          const bestHeight = typeof caps?.height?.max === 'number' ? caps.height.max : 1080
+          const bestFps = typeof caps?.frameRate?.max === 'number' ? Math.min(30, caps.frameRate.max) : 30
+          const supportsNoResize =
+            Array.isArray(caps?.resizeMode) && caps.resizeMode.includes('none')
+
+          await videoTrack.applyConstraints({
+            width: { ideal: bestWidth },
+            height: { ideal: bestHeight },
+            frameRate: { ideal: bestFps },
+            ...(supportsNoResize ? { resizeMode: 'none' as any } : {}),
+          } as MediaTrackConstraints)
+        } catch (constraintError) {
+          // Keep stream even if advanced constraints are not supported.
+          console.warn('Could not apply max-quality track constraints:', constraintError)
+        }
+      }
 
       console.log('Stream obtained:', {
         videoTracks: stream.getVideoTracks().length,
@@ -170,6 +194,18 @@ export default function LiveCameraInterface({
 
   const handleContinue = () => {
     if (previewStream) {
+      // Unlock TTS on the same user gesture so spoken captions can start immediately.
+      try {
+        if ('speechSynthesis' in window) {
+          const unlock = new SpeechSynthesisUtterance('')
+          unlock.volume = 0
+          window.speechSynthesis.speak(unlock)
+          window.speechSynthesis.cancel()
+        }
+      } catch (error) {
+        // Ignore unlock errors and continue.
+      }
+
       // For live: captionLanguage = speaking language, targetLanguage = caption translation language, aiLanguage = AI response language
       onLanguageSelection(selectedCaptionLang, selectedTargetLang, selectedAILang)
       onStreamStart(previewStream)
