@@ -50,6 +50,8 @@ export default function LiveViewerPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isConnectingRef = useRef(false)
+  const pendingFrameRef = useRef<number[] | null>(null)
+  const isRenderingRef = useRef(false)
 
   useEffect(() => {
     connectToStream()
@@ -117,8 +119,11 @@ export default function LiveViewerPage() {
             // Store transcript history in VideoPlayer for AI context
             // The VideoPlayer will use this when user asks questions
           } else if (message.type === 'frame') {
-            console.log('Received frame, data length:', message.data?.length)
-            displayFrame(message.data)
+            // Store latest frame, drop old ones to prevent buffering
+            pendingFrameRef.current = message.data
+            if (!isRenderingRef.current) {
+              renderLatestFrame()
+            }
           } else if (message.type === 'caption') {
             console.log('Received caption:', message.text, 'isFinal:', message.isFinal)
             // Only use final captions to avoid translation being aborted by rapid interim updates
@@ -172,49 +177,51 @@ export default function LiveViewerPage() {
     }
   }
 
-  const displayFrame = (data: number[]) => {
-    console.log('displayFrame called with data length:', data?.length)
-    if (!canvasRef.current) {
-      console.log('No canvas ref')
-      return
-    }
+  const renderLatestFrame = () => {
+    if (!pendingFrameRef.current || !canvasRef.current) return
+    
+    isRenderingRef.current = true
+    const data = pendingFrameRef.current
+    pendingFrameRef.current = null
+
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
     if (!ctx) {
-      console.log('No canvas context')
+      isRenderingRef.current = false
       return
     }
 
-    const blob = new Blob([new Uint8Array(data)], { type: 'image/jpeg' })
+    const uint8Array = new Uint8Array(data)
+    const blob = new Blob([uint8Array], { type: 'image/jpeg' })
     const url = URL.createObjectURL(blob)
+
     const img = new Image()
-    
     img.onload = () => {
-      console.log('Image loaded, size:', img.width, 'x', img.height)
       canvas.width = img.width
       canvas.height = img.height
       ctx.drawImage(img, 0, 0)
       URL.revokeObjectURL(url)
+      isRenderingRef.current = false
       
-      if (!streamRef.current) {
-        console.log('Attempting to create MediaStream...')
-        if (canvas.captureStream) {
-          const stream = canvas.captureStream(30)
-          streamRef.current = stream
-          setLiveStream(stream)
-          console.log('✅ Created MediaStream from canvas!', stream)
-        } else {
-          console.error('❌ canvas.captureStream not supported')
-        }
+      // Create MediaStream from canvas on first frame
+      if (!streamRef.current && canvas.captureStream) {
+        const stream = canvas.captureStream(5)
+        streamRef.current = stream
+        setLiveStream(stream)
+      }
+      
+      // Immediately render next frame if one arrived while rendering
+      if (pendingFrameRef.current) {
+        renderLatestFrame()
       }
     }
-    
-    img.onerror = (err) => {
-      console.error('Image load error:', err)
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      isRenderingRef.current = false
     }
-    
     img.src = url
   }
+
 
   return (
     <div className="min-h-screen bg-white">

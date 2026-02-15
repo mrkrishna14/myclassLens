@@ -74,8 +74,8 @@ export default function RecordPage() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         },
         audio: true
       })
@@ -161,9 +161,12 @@ export default function RecordPage() {
         return
       }
 
-      canvas.width = videoRef.current.videoWidth
-      canvas.height = videoRef.current.videoHeight
-      ctx.drawImage(videoRef.current, 0, 0)
+      // Scale down for RPi performance
+      const targetWidth = 640
+      const targetHeight = 480
+      canvas.width = targetWidth
+      canvas.height = targetHeight
+      ctx.drawImage(videoRef.current, 0, 0, targetWidth, targetHeight)
 
       canvas.toBlob((blob) => {
         if (blob && ws.readyState === WebSocket.OPEN) {
@@ -174,11 +177,10 @@ export default function RecordPage() {
               timestamp: Date.now()
             }
             ws.send(JSON.stringify(message))
-            console.log('Sent frame:', blob.size, 'bytes')
           })
         }
-        setTimeout(captureFrame, 100)
-      }, 'image/jpeg', 0.8)
+        setTimeout(captureFrame, 200)
+      }, 'image/jpeg', 0.6)
     }
 
     ws.onclose = () => {
