@@ -6,7 +6,6 @@ import BoundingBoxDrawer from './BoundingBoxDrawer'
 import InteractionLog from './InteractionLog'
 import CaptionDisplay from './CaptionDisplay'
 import AccessibilityPanel from './AccessibilityPanel'
-import AnswerPopup from './AnswerPopup'
 
 interface Interaction {
   id: string
@@ -57,8 +56,6 @@ export default function VideoPlayer({
   const [showAccessibility, setShowAccessibility] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [captionSize, setCaptionSize] = useState<'small' | 'medium' | 'large'>('medium')
-  const [showAnswerPopup, setShowAnswerPopup] = useState(false)
-  const [currentAnswer, setCurrentAnswer] = useState({ question: '', answer: '' })
   const [autoFollowEnabled, setAutoFollowEnabled] = useState(true)
   const [autoFollowStatus, setAutoFollowStatus] = useState<'off' | 'face' | 'motion' | 'unsupported'>('off')
   const [followPoint, setFollowPoint] = useState({ x: 50, y: 50 })
@@ -103,6 +100,7 @@ export default function VideoPlayer({
   const deltaBufferRef = useRef('')
   const deltaFlushTimerRef = useRef<number | null>(null)
   const lastDeltaFlushAtRef = useRef(0)
+  const answerTypingTimerRef = useRef<number | null>(null)
 
   const clampNumber = useCallback((value: number, min: number, max: number) => {
     return Math.min(max, Math.max(min, value))
@@ -114,6 +112,34 @@ export default function VideoPlayer({
       .replace(/[^a-z0-9\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
+  }
+
+  const clearAnswerTypingTimer = () => {
+    if (answerTypingTimerRef.current) {
+      window.clearInterval(answerTypingTimerRef.current)
+      answerTypingTimerRef.current = null
+    }
+  }
+
+  const streamAnswerToPanel = (interactionId: string, fullAnswer: string) => {
+    clearAnswerTypingTimer()
+
+    const chunks = fullAnswer.match(/\S+\s*/g) || [fullAnswer]
+    let index = 0
+
+    answerTypingTimerRef.current = window.setInterval(() => {
+      index += 1
+      const partial = chunks.slice(0, index).join('')
+      setInteractions((prev) =>
+        prev.map((interaction) =>
+          interaction.id === interactionId ? { ...interaction, answer: partial } : interaction
+        )
+      )
+
+      if (index >= chunks.length) {
+        clearAnswerTypingTimer()
+      }
+    }, 30)
   }
 
   const updateFollowPoint = useCallback((targetX: number, targetY: number) => {
@@ -595,6 +621,12 @@ export default function VideoPlayer({
     synth.addEventListener('voiceschanged', loadVoices)
     return () => {
       synth.removeEventListener('voiceschanged', loadVoices)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      clearAnswerTypingTimer()
     }
   }, [])
 
@@ -1230,22 +1262,22 @@ export default function VideoPlayer({
         throw new Error(data.error)
       }
 
+      const interactionId = Date.now().toString()
+      const finalExplanation = (data.explanation || '').trim()
+
       const newInteraction: Interaction = {
-        id: Date.now().toString(),
+        id: interactionId,
         timestamp,
         image: imageData,
         question,
-        answer: data.explanation,
+        answer: '',
         transcriptSnippet,
       }
 
-      setInteractions([...interactions, newInteraction])
+      setInteractions((prev) => [...prev, newInteraction])
       setShowBoundingBoxDrawer(true)
       setDrawnBox(null)
-      
-      // Show answer popup
-      setCurrentAnswer({ question, answer: data.explanation })
-      setShowAnswerPopup(true)
+      streamAnswerToPanel(interactionId, finalExplanation)
     } catch (error) {
       console.error('Error getting explanation:', error)
       alert('Failed to get explanation. Please try again.')
@@ -1598,15 +1630,6 @@ export default function VideoPlayer({
         onJumpToTimestamp={handleJumpToTimestamp}
         currentTime={currentTime}
       />
-
-      {/* Answer Popup */}
-      {showAnswerPopup && (
-        <AnswerPopup
-          question={currentAnswer.question}
-          answer={currentAnswer.answer}
-          onClose={() => setShowAnswerPopup(false)}
-        />
-      )}
     </div>
   )
 }

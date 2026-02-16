@@ -71,25 +71,27 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are a helpful AI assistant that explains visual content from educational materials. 
+          content: `You are an expert tutor helping a student understand a selected region on a board/screen.
 
-Analyze the image and provide clear, concise explanations. When relevant, naturally reference what was recently discussed in the lecture as context for your explanation. Speak as if you're directly helping the user understand what they're looking at.
+Write in a confident, student-friendly tone.
+Keep answers concise and high-signal:
+- 2 to 4 short sentences (max ~120 words)
+- focus on the key concept, what it means, and the immediate takeaway
+- if visible, explain equations/symbols directly and concretely
 
-Keep explanations:
-- Brief and to the point (2-3 sentences max)
-- Focused on what's most important
-- Natural and conversational
+Hard rules:
+- do NOT mention "transcript", "image", "context", or "based on"
+- do NOT add uncertainty filler like "it seems", "might be", "without more context"
+- do NOT narrate your process
 
-${targetLanguageName !== 'English' ? `IMPORTANT: You MUST respond entirely in ${targetLanguageName}. Do not use English.` : 'Respond in English.'}
-
-Be clear, concise, and educational. Always reference the transcript context in your explanation.`,
+${targetLanguageName !== 'English' ? `IMPORTANT: Respond entirely in ${targetLanguageName}.` : 'Respond in English.'}`,
         },
         {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: `The professor was just discussing: "${transcriptSnippet}"\n\n${question}`,
+              text: `Lecture notes for internal grounding only (do not mention these explicitly): "${transcriptSnippet}"\n\nStudent question: ${question}`,
             },
             {
               type: 'image_url',
@@ -100,8 +102,8 @@ Be clear, concise, and educational. Always reference the transcript context in y
           ] as any,
         },
       ],
-      max_tokens: 500,
-      temperature: 0.7,
+      max_tokens: 220,
+      temperature: 0.35,
     })
 
     console.log('Groq API response received')

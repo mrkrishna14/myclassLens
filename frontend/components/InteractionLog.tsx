@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useMemo, useRef } from 'react'
 import { Clock, MessageSquare, Sparkles, User, Bot } from 'lucide-react'
 
 interface Interaction {
@@ -22,6 +23,20 @@ export default function InteractionLog({
   onJumpToTimestamp,
   currentTime,
 }: InteractionLogProps) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const latestAnswer = useMemo(
+    () => (interactions.length ? interactions[interactions.length - 1].answer : ''),
+    [interactions]
+  )
+
+  useEffect(() => {
+    if (!listRef.current) return
+    listRef.current.scrollTo({
+      top: listRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [interactions.length, latestAnswer])
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
@@ -40,7 +55,7 @@ export default function InteractionLog({
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {interactions.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-30" />
@@ -89,9 +104,20 @@ export default function InteractionLog({
                         />
                       )}
                       <div className="flex-1">
-                        <p className="text-sm text-white leading-relaxed">
-                          {interaction.answer}
-                        </p>
+                        {interaction.answer ? (
+                          <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">
+                            {interaction.answer}
+                          </p>
+                        ) : (
+                          <div className="flex items-center gap-2 text-sm text-white/90">
+                            <span className="inline-flex gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/90 animate-pulse"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse [animation-delay:120ms]"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-white/50 animate-pulse [animation-delay:240ms]"></span>
+                            </span>
+                            <span>Generating explanation...</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
