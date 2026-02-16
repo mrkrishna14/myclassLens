@@ -6,6 +6,32 @@ This guide will help you set up your iPhone as a wireless camera for ClassLens L
 
 ClassLens Live mode allows you to use your iPhone camera wirelessly to stream real-time video to your computer. The system will provide real-time transcriptions and allow you to interact with the live video just like uploaded videos.
 
+## Live Classroom Connectivity (QR Join)
+
+When students join by QR code, ClassLens uses:
+
+1. **HTTP signaling** through `/api/live-session` to exchange WebRTC offers/answers/ICE candidates.
+2. **WebRTC media** for the actual live audio/video stream.
+
+If students can open the link but stay on **"Connecting to teacher stream..."**, the network is usually blocking peer-to-peer WebRTC media. Add TURN relay settings in `frontend/.env.local`:
+
+```bash
+# Optional custom STUN list (comma-separated)
+NEXT_PUBLIC_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302
+
+# TURN relay (recommended for school/campus Wi-Fi)
+NEXT_PUBLIC_TURN_URLS=turn:YOUR_TURN_HOST:3478,turns:YOUR_TURN_HOST:5349
+NEXT_PUBLIC_TURN_USERNAME=YOUR_USERNAME
+NEXT_PUBLIC_TURN_CREDENTIAL=YOUR_PASSWORD
+
+# Optional: force relay-only mode for testing reliability
+# NEXT_PUBLIC_ICE_TRANSPORT_POLICY=relay
+```
+
+Notes:
+- `NEXT_PUBLIC_` values are intentionally exposed to the browser, so use TURN credentials meant for clients.
+- After changing env values, restart the frontend dev server.
+
 ## Setup Options
 
 ### Option 1: EpocCam (Recommended - Easiest)

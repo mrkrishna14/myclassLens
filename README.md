@@ -9,6 +9,7 @@ ClassLens is a web-based platform that lets users upload and interact with pre-r
 1. **Video Upload & Live Camera**
    - Clean, drag-and-drop upload interface for pre-recorded videos
    - **NEW: Live Camera mode** - Use your iPhone wirelessly as a camera
+   - **NEW: Live Classroom Share Link** - Start one stream and let many students join from their own browsers
    - Support for common video formats (MP4, MOV, etc.)
    - Language selection for captions and AI explanations
 
@@ -145,13 +146,16 @@ cd frontend && npm run dev
    - Select "Live Camera" from the home screen
    - Grant camera and microphone permissions
    - Select your iPhone camera from the dropdown
-   - Click "Start Camera"
+   - Click "Start Camera" and continue
+   - ClassLens automatically creates a shareable classroom URL
+   - Students on the same Wi-Fi can open that URL to join in real-time
    - Select languages and begin
 
 3. **Real-Time Features**
    - See real-time captions as you speak (using Web Speech API)
    - Draw bounding boxes on live video
    - Ask questions about what's currently on screen
+   - Students can independently zoom/pan, ask AI questions, and use captions/translations on their own session
    - All features work in real-time!
 
 ### Accessibility

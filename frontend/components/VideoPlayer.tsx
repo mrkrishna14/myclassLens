@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import Image from 'next/image'
+import QRCode from 'qrcode'
 import { Play, Pause, Volume2, VolumeX, Settings, Maximize, Minimize, X, Sparkles } from 'lucide-react'
 import BoundingBoxDrawer from './BoundingBoxDrawer'
 import InteractionLog from './InteractionLog'
@@ -24,6 +26,12 @@ interface VideoPlayerProps {
   targetLanguage: string
   aiLanguage?: string
   isLive?: boolean
+  sessionRole?: 'host' | 'viewer' | null
+  sessionShareUrl?: string
+  sessionStatusMessage?: string
+  onLiveCaptionBroadcast?: (caption: string) => void
+  incomingSharedCaption?: string
+  disableLocalTranscription?: boolean
 }
 
 export default function VideoPlayer({
@@ -34,11 +42,17 @@ export default function VideoPlayer({
   targetLanguage,
   aiLanguage,
   isLive = false,
+  sessionRole = null,
+  sessionShareUrl,
+  sessionStatusMessage,
+  onLiveCaptionBroadcast,
+  incomingSharedCaption,
+  disableLocalTranscription = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(() => isLive && sessionRole === 'viewer')
   const [volume, setVolume] = useState(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -59,6 +73,9 @@ export default function VideoPlayer({
   const [autoFollowEnabled, setAutoFollowEnabled] = useState(true)
   const [autoFollowStatus, setAutoFollowStatus] = useState<'off' | 'face' | 'motion' | 'unsupported'>('off')
   const [followPoint, setFollowPoint] = useState({ x: 50, y: 50 })
+  const [shareLinkCopied, setShareLinkCopied] = useState(false)
+  const [sessionQrCodeDataUrl, setSessionQrCodeDataUrl] = useState('')
+  const [sessionQrCodeError, setSessionQrCodeError] = useState(false)
   const [liveLayout, setLiveLayout] = useState({
     containerWidth: 0,
     containerHeight: 0,
@@ -101,6 +118,9 @@ export default function VideoPlayer({
   const deltaFlushTimerRef = useRef<number | null>(null)
   const lastDeltaFlushAtRef = useRef(0)
   const answerTypingTimerRef = useRef<number | null>(null)
+  const shareCopiedTimeoutRef = useRef<number | null>(null)
+  const lastBroadcastCaptionRef = useRef('')
+  const lastIncomingCaptionRef = useRef('')
 
   const clampNumber = useCallback((value: number, min: number, max: number) => {
     return Math.min(max, Math.max(min, value))
@@ -121,6 +141,51 @@ export default function VideoPlayer({
     }
   }
 
+  useEffect(() => {
+    let cancelled = false
+
+    const createQrCode = async () => {
+      if (!sessionShareUrl || sessionRole !== 'host') {
+        setSessionQrCodeDataUrl('')
+        setSessionQrCodeError(false)
+        return
+      }
+
+      try {
+        const qrDataUrl = await QRCode.toDataURL(sessionShareUrl, {
+          width: 172,
+          margin: 1,
+          color: {
+            dark: '#111827',
+            light: '#ffffff',
+          },
+        })
+
+        if (!cancelled) {
+          setSessionQrCodeDataUrl(qrDataUrl)
+          setSessionQrCodeError(false)
+        }
+      } catch (error) {
+        console.error('Failed to generate QR code:', error)
+        if (!cancelled) {
+          setSessionQrCodeDataUrl('')
+          setSessionQrCodeError(true)
+        }
+      }
+    }
+
+    void createQrCode()
+    return () => {
+      cancelled = true
+    }
+  }, [sessionShareUrl, sessionRole])
+
+  useEffect(() => {
+    if (isLive && sessionRole === 'viewer') {
+      setIsMuted(true)
+    }
+  }, [isLive, sessionRole])
+
   const streamAnswerToPanel = (interactionId: string, fullAnswer: string) => {
     clearAnswerTypingTimer()
 
@@ -140,6 +205,22 @@ export default function VideoPlayer({
         clearAnswerTypingTimer()
       }
     }, 30)
+  }
+
+  const copyShareLink = async () => {
+    if (!sessionShareUrl) return
+    try {
+      await navigator.clipboard.writeText(sessionShareUrl)
+      setShareLinkCopied(true)
+      if (shareCopiedTimeoutRef.current) {
+        window.clearTimeout(shareCopiedTimeoutRef.current)
+      }
+      shareCopiedTimeoutRef.current = window.setTimeout(() => {
+        setShareLinkCopied(false)
+      }, 1600)
+    } catch (error) {
+      console.error('Failed to copy session link:', error)
+    }
   }
 
   const updateFollowPoint = useCallback((targetX: number, targetY: number) => {
@@ -625,8 +706,44 @@ export default function VideoPlayer({
   }, [])
 
   useEffect(() => {
+    if (!onLiveCaptionBroadcast || !isLive || disableLocalTranscription) return
+    const normalized = currentCaption.trim()
+    if (!normalized || normalized === lastBroadcastCaptionRef.current) return
+
+    lastBroadcastCaptionRef.current = normalized
+    onLiveCaptionBroadcast(normalized)
+  }, [currentCaption, disableLocalTranscription, isLive, onLiveCaptionBroadcast])
+
+  useEffect(() => {
+    if (!disableLocalTranscription || !isLive) return
+
+    const normalized = (incomingSharedCaption || '').trim()
+    if (!normalized || normalized === lastIncomingCaptionRef.current) return
+
+    lastIncomingCaptionRef.current = normalized
+    setCurrentCaption(normalized)
+
+    if (captionLanguage === targetLanguage) {
+      setTranslatedCaption(normalized)
+      return
+    }
+
+    translateText(normalized, captionLanguage, targetLanguage, false, false)
+  }, [
+    incomingSharedCaption,
+    disableLocalTranscription,
+    isLive,
+    captionLanguage,
+    targetLanguage,
+  ])
+
+  useEffect(() => {
     return () => {
       clearAnswerTypingTimer()
+      if (shareCopiedTimeoutRef.current) {
+        window.clearTimeout(shareCopiedTimeoutRef.current)
+        shareCopiedTimeoutRef.current = null
+      }
     }
   }, [])
 
@@ -817,7 +934,7 @@ export default function VideoPlayer({
 
   // Real-time transcription for live streams using Web Speech API
   useEffect(() => {
-    if (!isLive || !liveStream) {
+    if (!isLive || !liveStream || disableLocalTranscription) {
       setIsTranscribing(false)
       return
     }
@@ -1024,7 +1141,7 @@ export default function VideoPlayer({
       }
       setIsTranscribing(false)
     }
-  }, [isLive, liveStream, captionLanguage, sessionStartTime]) // Removed currentCaption from deps to prevent re-renders
+  }, [isLive, liveStream, captionLanguage, sessionStartTime, disableLocalTranscription]) // Removed currentCaption from deps to prevent re-renders
 
   // Transcribe video file on load (for uploaded videos)
   useEffect(() => {
@@ -1124,7 +1241,6 @@ export default function VideoPlayer({
 
   const toggleMute = () => {
     if (videoRef.current) {
-      videoRef.current.muted = !isMuted
       setIsMuted(!isMuted)
     }
   }
@@ -1372,7 +1488,7 @@ export default function VideoPlayer({
             }}
             autoPlay={isLive}
             playsInline
-            muted={isLive ? true : isMuted}
+            muted={isLive ? sessionRole === 'host' || isMuted : isMuted}
             onLoadedMetadata={() => {
               if (isLive && videoRef.current) {
                 console.log('Live video metadata loaded')
@@ -1409,9 +1525,45 @@ export default function VideoPlayer({
             </div>
           )}
 
+          {isLive && sessionRole === 'host' && sessionShareUrl && (
+            <div className="absolute top-4 right-4 z-30 max-w-sm bg-black/75 text-white rounded-xl border border-white/15 p-3 backdrop-blur">
+              <p className="text-[11px] uppercase tracking-wide text-white/70 mb-1">Classroom link</p>
+              <div className="mb-2 rounded-lg bg-white p-2">
+                {sessionQrCodeDataUrl ? (
+                  <Image
+                    src={sessionQrCodeDataUrl}
+                    alt="QR code for joining the live classroom session"
+                    width={144}
+                    height={144}
+                    unoptimized
+                    className="w-36 h-36 object-contain mx-auto"
+                  />
+                ) : (
+                  <div className="w-36 h-36 flex items-center justify-center text-xs text-gray-600 text-center mx-auto px-2">
+                    {sessionQrCodeError ? 'QR unavailable' : 'Generating QR...'}
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-white/80 mb-2">Scan to join from any device on the same network.</p>
+              <p className="text-xs break-all text-white/95">{sessionShareUrl}</p>
+              <button
+                onClick={copyShareLink}
+                className="mt-2 w-full rounded-md bg-white/15 hover:bg-white/25 text-xs font-semibold py-1.5 transition-colors"
+              >
+                {shareLinkCopied ? 'Copied' : 'Copy link'}
+              </button>
+            </div>
+          )}
+
+          {isLive && sessionStatusMessage && (
+            <div className="absolute top-20 left-4 z-30 max-w-sm bg-black/70 text-white text-xs px-3 py-2 rounded-lg border border-white/15">
+              {sessionStatusMessage}
+            </div>
+          )}
+
           {/* Transcription Loading Indicator - only show if actually transcribing */}
           {isTranscribing && !currentCaption && (
-            <div className="absolute top-20 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
+            <div className="absolute top-32 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                 <span className="text-sm">Starting transcription...</span>
@@ -1523,7 +1675,9 @@ export default function VideoPlayer({
 
           {/* Hint bubble for box drawing */}
           {isLive && (
-            <div className="absolute top-4 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-2xl z-30 border border-blue-400 backdrop-blur-sm transform transition-all duration-300 hover:scale-105">
+            <div
+              className="absolute bottom-28 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-2xl z-30 border border-blue-400 backdrop-blur-sm transform transition-all duration-300 hover:scale-105"
+            >
               <p className="text-sm font-semibold flex items-center gap-2">
                 <span className="text-lg">✨</span>
                 Draw a box to ask questions

@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
   swcMinify: false,
+  allowedDevOrigins: ['localhost', '127.0.0.1', '*.local', '10.0.0.233'],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
