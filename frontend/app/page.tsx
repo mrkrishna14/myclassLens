@@ -112,27 +112,12 @@ const buildRtcConfiguration = (): RTCConfiguration => {
   const defaultStun: RTCIceServer = { urls: 'stun:stun.l.google.com:19302' }
   const jsonIceServers = parseIceServersFromJson(process.env.NEXT_PUBLIC_ICE_SERVERS_JSON)
   const configuredStunUrls = parseServerUrls(process.env.NEXT_PUBLIC_STUN_URLS)
-  const configuredTurnUrls = parseServerUrls(process.env.NEXT_PUBLIC_TURN_URLS)
-
   const configuredIceServers: RTCIceServer[] = []
 
   if (configuredStunUrls.length > 0) {
     configuredIceServers.push({
       urls: configuredStunUrls.length === 1 ? configuredStunUrls[0] : configuredStunUrls,
     })
-  }
-
-  if (configuredTurnUrls.length > 0) {
-    const turnServer: RTCIceServer = {
-      urls: configuredTurnUrls.length === 1 ? configuredTurnUrls[0] : configuredTurnUrls,
-    }
-    if (process.env.NEXT_PUBLIC_TURN_USERNAME) {
-      turnServer.username = process.env.NEXT_PUBLIC_TURN_USERNAME
-    }
-    if (process.env.NEXT_PUBLIC_TURN_CREDENTIAL) {
-      turnServer.credential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL
-    }
-    configuredIceServers.push(turnServer)
   }
 
   const iceServers = [
@@ -146,22 +131,12 @@ const buildRtcConfiguration = (): RTCConfiguration => {
     return list.findIndex((candidate) => JSON.stringify(candidate) === serialized) === index
   })
 
-  const transportPolicy = process.env.NEXT_PUBLIC_ICE_TRANSPORT_POLICY
-  const rtcConfig: RTCConfiguration = {
+  return {
     iceServers: uniqueIceServers.length > 0 ? uniqueIceServers : [defaultStun],
   }
-  if (transportPolicy === 'relay' || transportPolicy === 'all') {
-    rtcConfig.iceTransportPolicy = transportPolicy
-  }
-
-  return rtcConfig
 }
 
 const RTC_CONFIGURATION: RTCConfiguration = buildRtcConfiguration()
-const HOST_RTC_CONFIGURATION: RTCConfiguration =
-  RTC_CONFIGURATION.iceTransportPolicy === 'relay'
-    ? { ...RTC_CONFIGURATION, iceTransportPolicy: 'all' }
-    : RTC_CONFIGURATION
 
 const LANGUAGES = [
   { code: 'en', name: 'English' },
@@ -442,7 +417,7 @@ export default function Home() {
         hostPeerConnectionsRef.current.delete(viewerId)
       }
 
-      const pc = new RTCPeerConnection(HOST_RTC_CONFIGURATION)
+      const pc = new RTCPeerConnection(RTC_CONFIGURATION)
       hostPeerConnectionsRef.current.set(viewerId, pc)
 
       const stream = hostStreamRef.current
@@ -491,7 +466,6 @@ export default function Home() {
     async (sessionId: string, viewerId: string, hostId: string) => {
       closeAllPeerConnections()
       setSessionError('')
-      const canRetryWithDirect = RTC_CONFIGURATION.iceTransportPolicy === 'relay'
 
       const runViewerAttempt = async (rtcConfiguration: RTCConfiguration, isRetry: boolean) => {
         closeAllPeerConnections()
@@ -524,14 +498,6 @@ export default function Home() {
         pc.addTransceiver('audio', { direction: 'recvonly' })
         pc.addTransceiver('video', { direction: 'recvonly' })
 
-        const retryWithDirectIfNeeded = () => {
-          if (!canRetryWithDirect || isRetry || viewerConnectionAttemptRef.current !== attemptId) {
-            return false
-          }
-          void runViewerAttempt({ ...RTC_CONFIGURATION, iceTransportPolicy: 'all' }, true)
-          return true
-        }
-
         viewerConnectTimeoutRef.current = window.setTimeout(() => {
           if (viewerPeerRef.current !== pc || hasConnected) return
           timeoutTriggered = true
@@ -540,8 +506,6 @@ export default function Home() {
           } catch {
             // Ignore close errors.
           }
-
-          if (retryWithDirectIfNeeded()) return
 
           setSessionStatusMessage('')
           const diag = viewerDiagnosticsRef.current
@@ -554,7 +518,7 @@ export default function Home() {
           }
           if (diag.localIceCount === 0 && diag.remoteIceCount === 0) {
             setSessionError(
-              `Connected to signaling but no ICE candidates were exchanged. TURN/STUN may be blocked or invalid${iceHint}`
+              `Connected to signaling but no ICE candidates were exchanged. STUN/network path may be blocked${iceHint}`
             )
             return
           }
@@ -641,10 +605,9 @@ export default function Home() {
               window.clearTimeout(viewerConnectTimeoutRef.current)
               viewerConnectTimeoutRef.current = null
             }
-            if (retryWithDirectIfNeeded()) return
             setSessionStatusMessage('')
             setSessionError(
-              'Connection to the live classroom failed. This network may block direct WebRTC; TURN relay is recommended.'
+              'Connection to the live classroom failed. This network may block direct WebRTC.'
             )
           }
         }
