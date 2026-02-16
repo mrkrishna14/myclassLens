@@ -76,6 +76,7 @@ export default function VideoPlayer({
   const [shareLinkCopied, setShareLinkCopied] = useState(false)
   const [sessionQrCodeDataUrl, setSessionQrCodeDataUrl] = useState('')
   const [sessionQrCodeError, setSessionQrCodeError] = useState(false)
+  const [showTtsEnablePrompt, setShowTtsEnablePrompt] = useState(false)
   const [liveLayout, setLiveLayout] = useState({
     containerWidth: 0,
     containerHeight: 0,
@@ -451,7 +452,23 @@ export default function VideoPlayer({
     if (normalized === lastSpokenTextRef.current) return
 
     if (!ttsUnlockedRef.current) {
+      // If a gesture happened before this component mounted, this probe can unlock TTS now.
+      try {
+        const probe = new SpeechSynthesisUtterance('')
+        probe.volume = 0
+        speechSynthesis.speak(probe)
+        speechSynthesis.cancel()
+        ttsUnlockedRef.current = true
+      } catch {
+        // Ignore and keep pending until the next user gesture.
+      }
+    }
+
+    if (!ttsUnlockedRef.current) {
       pendingSpeechRef.current = { text: normalized, language, interrupt }
+      if (isLive && disableLocalTranscription) {
+        setShowTtsEnablePrompt(true)
+      }
       return
     }
 
@@ -612,6 +629,7 @@ export default function VideoPlayer({
       speechSynthesis.speak(u)
       speechSynthesis.cancel()
       ttsUnlockedRef.current = true
+      setShowTtsEnablePrompt(false)
 
        if (pendingSpeechRef.current) {
          const pending = pendingSpeechRef.current
@@ -715,10 +733,26 @@ export default function VideoPlayer({
   }, [currentCaption, disableLocalTranscription, isLive, onLiveCaptionBroadcast])
 
   useEffect(() => {
+    if (!isLive || !disableLocalTranscription) return
+    // Reset speech delta state when entering viewer mode to avoid skipping first spoken caption.
+    lastTranslatedCaptionRef.current = ''
+    lastDeltaKeyRef.current = ''
+    lastDeltaAtRef.current = 0
+    deltaBufferRef.current = ''
+    lastIncomingCaptionRef.current = ''
+  }, [isLive, disableLocalTranscription])
+
+  useEffect(() => {
     if (!disableLocalTranscription || !isLive) return
 
     const normalized = (incomingSharedCaption || '').trim()
     if (!normalized || normalized === lastIncomingCaptionRef.current) return
+
+    // Attempt TTS unlock as soon as shared captions start arriving on viewer devices.
+    unlockTts()
+    if (!ttsUnlockedRef.current) {
+      setShowTtsEnablePrompt(true)
+    }
 
     lastIncomingCaptionRef.current = normalized
     setCurrentCaption(normalized)
@@ -1577,6 +1611,20 @@ export default function VideoPlayer({
             size={captionSize}
             className="absolute bottom-20 left-0 right-0"
           />
+
+          {isLive && disableLocalTranscription && showTtsEnablePrompt && (
+            <button
+              onClick={() => {
+                unlockTts()
+                if (ttsUnlockedRef.current) {
+                  setShowTtsEnablePrompt(false)
+                }
+              }}
+              className="absolute bottom-36 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-lg bg-black/75 text-white text-sm font-semibold border border-white/20 hover:bg-black/85 transition-colors"
+            >
+              Tap to enable spoken captions
+            </button>
+          )}
 
           {/* Box Question Handler - always enabled for live streams */}
           {isLive && showBoundingBoxDrawer && (
