@@ -255,6 +255,7 @@ export default function Home() {
   const sessionRoleRef = useRef<SessionRole>(null)
   const activeSessionIdRef = useRef<string | null>(null)
   const participantIdRef = useRef<string | null>(null)
+  const autoJoinAttemptRef = useRef<string | null>(null)
   const viewerConnectTimeoutRef = useRef<number | null>(null)
   const viewerConnectionAttemptRef = useRef(0)
   const hostViewerAttemptMapRef = useRef<Map<string, number>>(new Map())
@@ -1022,7 +1023,11 @@ export default function Home() {
     setMode((previous) => (previous === 'select' ? 'join' : previous))
     setSessionError('')
     setSessionStatusMessage('')
-  }, [searchParams])
+
+    if (autoJoinAttemptRef.current === parsedSessionId || sessionRoleRef.current) return
+    autoJoinAttemptRef.current = parsedSessionId
+    void joinSessionById(parsedSessionId)
+  }, [joinSessionById, searchParams])
 
   const clearShareLinkParam = () => {
     if (typeof window === 'undefined') return
