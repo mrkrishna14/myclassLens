@@ -255,28 +255,28 @@ export default function VideoPlayer({
     }
   }
 
-  const updateFollowPoint = useCallback((targetX: number, targetY: number) => {
+  const updateFollowPoint = useCallback((targetX: number, _targetY: number) => {
     const previous = followPointRef.current
 
-    // Boost horizontal target so board traversal (left -> right) tracks more aggressively.
-    const horizontalBoost = targetX >= 50 ? 1.28 : 1.12
+    // Keep tracking mostly horizontal for classroom board walks.
+    const horizontalBoost = targetX >= 50 ? 1.2 : 1.08
     const adjustedTargetX = clampNumber(50 + (targetX - 50) * horizontalBoost, 0, 100)
-    const adjustedTargetY = clampNumber(targetY, 0, 100)
+    const adjustedTargetY = 50
 
     const rawDeltaX = adjustedTargetX - previous.x
     const rawDeltaY = adjustedTargetY - previous.y
 
-    // Deadzone removes micro-jitter but keeps larger moves responsive.
-    const deltaX = Math.abs(rawDeltaX) < 0.45 ? 0 : rawDeltaX
-    const deltaY = Math.abs(rawDeltaY) < 0.35 ? 0 : rawDeltaY
+    // Larger deadzone removes small shake from detection noise.
+    const deltaX = Math.abs(rawDeltaX) < 1.1 ? 0 : rawDeltaX
+    const deltaY = Math.abs(rawDeltaY) < 2 ? 0 : rawDeltaY
 
-    const smoothingX = 0.54
-    const smoothingY = 0.3
-    const maxStepX = 7.5
-    const maxStepY = 3.8
+    const smoothingX = 0.36
+    const smoothingY = 0.08
+    const maxStepX = 5.4
+    const maxStepY = 0.5
 
     const nextX = clampNumber(previous.x + clampNumber(deltaX * smoothingX, -maxStepX, maxStepX), 1, 99)
-    const nextY = clampNumber(previous.y + clampNumber(deltaY * smoothingY, -maxStepY, maxStepY), 10, 90)
+    const nextY = clampNumber(previous.y + clampNumber(deltaY * smoothingY, -maxStepY, maxStepY), 46, 54)
     followPointRef.current = { x: nextX, y: nextY }
     setFollowPoint({ x: nextX, y: nextY })
   }, [clampNumber])
@@ -311,15 +311,12 @@ export default function VideoPlayer({
     const threshold = 22
     let changedPixels = 0
     let sumX = 0
-    let sumY = 0
 
     for (let i = 0; i < currentFrame.length; i++) {
       if (Math.abs(currentFrame[i] - previousFrame[i]) > threshold) {
         changedPixels++
         const x = i % width
-        const y = Math.floor(i / width)
         sumX += x
-        sumY += y
       }
     }
 
@@ -327,9 +324,8 @@ export default function VideoPlayer({
     if (changedPixels < width * height * minChangedRatio) return null
 
     const centroidX = (sumX / changedPixels / width) * 100
-    const centroidY = (sumY / changedPixels / height) * 100
     const centerX = centroidX * 0.78 + followPointRef.current.x * 0.22
-    const centerY = centroidY * 0.8 + followPointRef.current.y * 0.2
+    const centerY = 50
     return { x: centerX, y: centerY }
   }, [])
 
