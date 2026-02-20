@@ -78,6 +78,7 @@ Keep answers concise and high-signal:
 - 2 to 4 short sentences (max ~120 words)
 - focus on the key concept, what it means, and the immediate takeaway
 - if visible, explain equations/symbols directly and concretely
+- prefer readable math notation using proper symbols (e.g., × ÷ ≤ ≥ ≠ π √ and exponents like x²) instead of plain ASCII
 
 Hard rules:
 - do NOT mention "transcript", "image", "context", or "based on"

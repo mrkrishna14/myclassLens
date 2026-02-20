@@ -8,7 +8,7 @@ import LiveCameraInterface from '@/components/LiveCameraInterface'
 
 type Mode = 'select' | 'upload' | 'live' | 'join' | 'playing'
 type SessionRole = 'host' | 'viewer' | null
-type LiveSignalType = 'offer' | 'answer' | 'ice-candidate' | 'caption' | 'session-ended'
+type LiveSignalType = 'offer' | 'answer' | 'ice-candidate' | 'caption' | 'viewport' | 'session-ended'
 
 interface SessionMessage {
   id: string
@@ -57,6 +57,14 @@ interface AnswerSignalPayload {
 interface IceSignalPayload {
   candidate: RTCIceCandidateInit
   attemptId?: number
+}
+
+interface ViewportSignalPayload {
+  translateX: number
+  translateY: number
+  zoom: number
+  autoFollowEnabled: boolean
+  autoFollowStatus: 'off' | 'face' | 'motion' | 'unsupported'
 }
 
 interface PendingHostCandidate {
@@ -224,6 +232,39 @@ const parseIceSignalPayload = (payload: unknown): IceSignalPayload => {
   return { candidate: payload as RTCIceCandidateInit }
 }
 
+const parseViewportSignalPayload = (payload: unknown): ViewportSignalPayload | null => {
+  const maybeObject = payload as Partial<ViewportSignalPayload> | null
+  if (!maybeObject || typeof maybeObject !== 'object') return null
+
+  const { translateX, translateY, zoom, autoFollowEnabled, autoFollowStatus } = maybeObject
+  const validStatus =
+    autoFollowStatus === 'off' ||
+    autoFollowStatus === 'face' ||
+    autoFollowStatus === 'motion' ||
+    autoFollowStatus === 'unsupported'
+
+  if (
+    typeof translateX !== 'number' ||
+    !Number.isFinite(translateX) ||
+    typeof translateY !== 'number' ||
+    !Number.isFinite(translateY) ||
+    typeof zoom !== 'number' ||
+    !Number.isFinite(zoom) ||
+    typeof autoFollowEnabled !== 'boolean' ||
+    !validStatus
+  ) {
+    return null
+  }
+
+  return {
+    translateX,
+    translateY,
+    zoom,
+    autoFollowEnabled,
+    autoFollowStatus,
+  }
+}
+
 export default function Home() {
   const searchParams = useSearchParams()
   const [mode, setMode] = useState<Mode>('select')
@@ -244,12 +285,14 @@ export default function Home() {
   const [sessionStatusMessage, setSessionStatusMessage] = useState<string>('')
   const [isJoiningSession, setIsJoiningSession] = useState(false)
   const [incomingSharedCaption, setIncomingSharedCaption] = useState('')
+  const [incomingLiveViewport, setIncomingLiveViewport] = useState<ViewportSignalPayload | null>(null)
 
   const hostPeerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null)
   const pendingHostCandidatesRef = useRef<Map<string, PendingHostCandidate[]>>(new Map())
   const pendingViewerCandidatesRef = useRef<RTCIceCandidateInit[]>([])
   const lastBroadcastCaptionRef = useRef('')
+  const lastBroadcastViewportRef = useRef('')
 
   const hostStreamRef = useRef<MediaStream | null>(null)
   const sessionRoleRef = useRef<SessionRole>(null)
@@ -376,9 +419,11 @@ export default function Home() {
     setSessionShareUrl('')
     setFallbackShareUrl('')
     setIncomingSharedCaption('')
+    setIncomingLiveViewport(null)
     setSessionError('')
     setSessionStatusMessage('')
     lastBroadcastCaptionRef.current = ''
+    lastBroadcastViewportRef.current = ''
   }, [closeAllPeerConnections, sessionRequest])
 
   const sendSignal = useCallback(
@@ -819,10 +864,19 @@ export default function Home() {
           return
         }
 
+        if (message.type === 'viewport') {
+          const viewport = parseViewportSignalPayload(message.payload)
+          if (viewport) {
+            setIncomingLiveViewport(viewport)
+          }
+          return
+        }
+
         if (message.type === 'session-ended') {
           setSessionError('The teacher ended this live session.')
           setMode('join')
           setLiveStream(null)
+          setIncomingLiveViewport(null)
           closeAllPeerConnections()
         }
       }
@@ -982,6 +1036,7 @@ export default function Home() {
         setSessionShareUrl('')
         setFallbackShareUrl('')
         setIncomingSharedCaption('')
+        setIncomingLiveViewport(null)
         setSessionStatusMessage('Connecting to teacher stream...')
 
         await startViewerPeerConnection(
@@ -1048,6 +1103,25 @@ export default function Home() {
 
       lastBroadcastCaptionRef.current = normalized
       void sendSignal('caption', { text: normalized })
+    },
+    [sendSignal]
+  )
+
+  const handleBroadcastViewport = useCallback(
+    (viewport: ViewportSignalPayload) => {
+      if (sessionRoleRef.current !== 'host') return
+
+      const serialized = JSON.stringify({
+        translateX: Number(viewport.translateX.toFixed(2)),
+        translateY: Number(viewport.translateY.toFixed(2)),
+        zoom: Number(viewport.zoom.toFixed(4)),
+        autoFollowEnabled: viewport.autoFollowEnabled,
+        autoFollowStatus: viewport.autoFollowStatus,
+      })
+      if (serialized === lastBroadcastViewportRef.current) return
+
+      lastBroadcastViewportRef.current = serialized
+      void sendSignal('viewport', JSON.parse(serialized) as ViewportSignalPayload)
     },
     [sendSignal]
   )
@@ -1161,6 +1235,9 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+              <p className="mt-2 text-xs text-gray-500">
+                You can also change this after you auto-join and the live stream opens.
+              </p>
             </div>
 
             <div>
@@ -1232,8 +1309,11 @@ export default function Home() {
         sessionShareUrl={sessionShareUrl || fallbackShareUrl || undefined}
         sessionStatusMessage={sessionStatusMessage || undefined}
         onLiveCaptionBroadcast={handleBroadcastCaption}
+        onLiveViewportBroadcast={sessionRole === 'host' ? handleBroadcastViewport : undefined}
         incomingSharedCaption={sessionRole === 'viewer' ? incomingSharedCaption : undefined}
+        incomingLiveViewport={sessionRole === 'viewer' ? incomingLiveViewport || undefined : undefined}
         disableLocalTranscription={sessionRole === 'viewer'}
+        onTargetLanguageChange={sessionRole === 'viewer' ? setTargetLanguage : undefined}
       />
     )
   }

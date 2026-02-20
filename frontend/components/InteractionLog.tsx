@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import { Clock, MessageSquare, Sparkles, User, Bot } from 'lucide-react'
+import { formatMathText } from '@/lib/formatMathText'
 
 interface Interaction {
   id: string
@@ -106,7 +107,7 @@ export default function InteractionLog({
                       <div className="flex-1">
                         {interaction.answer ? (
                           <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">
-                            {interaction.answer}
+                            {formatMathText(interaction.answer)}
                           </p>
                         ) : (
                           <div className="flex items-center gap-2 text-sm text-white/90">

@@ -62,6 +62,7 @@ const isLiveSignalType = (value: string): value is LiveSignalType => {
     value === 'answer' ||
     value === 'ice-candidate' ||
     value === 'caption' ||
+    value === 'viewport' ||
     value === 'session-ended'
   )
 }

@@ -2,6 +2,7 @@
 
 import { X, Copy, Check } from 'lucide-react'
 import { useState } from 'react'
+import { formatMathText } from '@/lib/formatMathText'
 
 interface AnswerPopupProps {
   answer: string
@@ -47,7 +48,7 @@ export default function AnswerPopup({ answer, question, onClose }: AnswerPopupPr
           <div className="prose prose-sm max-w-none">
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <p className="text-gray-800 leading-relaxed whitespace-pre-wrap text-base">
-                {answer}
+                {formatMathText(answer)}
               </p>
             </div>
           </div>

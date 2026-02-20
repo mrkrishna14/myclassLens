@@ -32,6 +32,21 @@ interface VideoPlayerProps {
   onLiveCaptionBroadcast?: (caption: string) => void
   incomingSharedCaption?: string
   disableLocalTranscription?: boolean
+  onTargetLanguageChange?: (language: string) => void
+  onLiveViewportBroadcast?: (viewport: {
+    translateX: number
+    translateY: number
+    zoom: number
+    autoFollowEnabled: boolean
+    autoFollowStatus: 'off' | 'face' | 'motion' | 'unsupported'
+  }) => void
+  incomingLiveViewport?: {
+    translateX: number
+    translateY: number
+    zoom: number
+    autoFollowEnabled: boolean
+    autoFollowStatus: 'off' | 'face' | 'motion' | 'unsupported'
+  }
 }
 
 export default function VideoPlayer({
@@ -48,6 +63,9 @@ export default function VideoPlayer({
   onLiveCaptionBroadcast,
   incomingSharedCaption,
   disableLocalTranscription = false,
+  onTargetLanguageChange,
+  onLiveViewportBroadcast,
+  incomingLiveViewport,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -122,6 +140,19 @@ export default function VideoPlayer({
   const shareCopiedTimeoutRef = useRef<number | null>(null)
   const lastBroadcastCaptionRef = useRef('')
   const lastIncomingCaptionRef = useRef('')
+  const lastViewportBroadcastRef = useRef('')
+  const viewerCaptionLanguages = [
+    { code: 'en', name: 'English' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'fr', name: 'French' },
+    { code: 'de', name: 'German' },
+    { code: 'zh', name: 'Chinese' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'ko', name: 'Korean' },
+    { code: 'pt', name: 'Portuguese' },
+    { code: 'ar', name: 'Arabic' },
+    { code: 'hi', name: 'Hindi' },
+  ]
 
   const clampNumber = useCallback((value: number, min: number, max: number) => {
     return Math.min(max, Math.max(min, value))
@@ -801,7 +832,7 @@ export default function VideoPlayer({
     isTrackingFrameRef.current = false
     previousMotionFrameRef.current = null
 
-    if (!isLive || !liveStream || !autoFollowEnabled) {
+    if (!isLive || !liveStream || sessionRole !== 'host' || !autoFollowEnabled) {
       setAutoFollowStatus('off')
       const center = { x: 50, y: 50 }
       followPointRef.current = center
@@ -888,7 +919,7 @@ export default function VideoPlayer({
       isTrackingFrameRef.current = false
       previousMotionFrameRef.current = null
     }
-  }, [isLive, liveStream, autoFollowEnabled, detectMotionTarget, updateFollowPoint])
+  }, [isLive, liveStream, autoFollowEnabled, detectMotionTarget, updateFollowPoint, sessionRole])
 
   // Setup video element with stream or URL (only run when stream/URL changes)
   useEffect(() => {
@@ -1491,6 +1522,47 @@ export default function VideoPlayer({
     effectiveLiveZoom > 1
       ? clampNumber(((50 - followPoint.y) / 50) * maxPanPercentY * panGainY, -maxPanPercentY, maxPanPercentY)
       : 0
+  const hasIncomingViewport =
+    sessionRole === 'viewer' &&
+    !!incomingLiveViewport &&
+    Number.isFinite(incomingLiveViewport.translateX) &&
+    Number.isFinite(incomingLiveViewport.translateY) &&
+    Number.isFinite(incomingLiveViewport.zoom)
+  const renderedTranslateX = hasIncomingViewport ? incomingLiveViewport.translateX : liveTranslateX
+  const renderedTranslateY = hasIncomingViewport ? incomingLiveViewport.translateY : liveTranslateY
+  const renderedZoom = hasIncomingViewport ? incomingLiveViewport.zoom : effectiveLiveZoom
+  const renderedAutoFollowEnabled = hasIncomingViewport
+    ? incomingLiveViewport.autoFollowEnabled
+    : autoFollowEnabled
+  const renderedAutoFollowStatus = hasIncomingViewport
+    ? incomingLiveViewport.autoFollowStatus
+    : autoFollowStatus
+
+  useEffect(() => {
+    if (!isLive || sessionRole !== 'host' || !onLiveViewportBroadcast) return
+
+    const payload = {
+      translateX: Number(renderedTranslateX.toFixed(2)),
+      translateY: Number(renderedTranslateY.toFixed(2)),
+      zoom: Number(renderedZoom.toFixed(4)),
+      autoFollowEnabled,
+      autoFollowStatus,
+    }
+    const serialized = JSON.stringify(payload)
+    if (serialized === lastViewportBroadcastRef.current) return
+
+    lastViewportBroadcastRef.current = serialized
+    onLiveViewportBroadcast(payload)
+  }, [
+    isLive,
+    sessionRole,
+    onLiveViewportBroadcast,
+    renderedTranslateX,
+    renderedTranslateY,
+    renderedZoom,
+    autoFollowEnabled,
+    autoFollowStatus,
+  ])
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -1511,7 +1583,7 @@ export default function VideoPlayer({
             style={
               isLive
                 ? {
-                    transform: `translate3d(${liveTranslateX}%, ${liveTranslateY}%, 0) scale(${effectiveLiveZoom})`,
+                    transform: `translate3d(${renderedTranslateX}%, ${renderedTranslateY}%, 0) scale(${renderedZoom})`,
                     transformOrigin: 'center center',
                   }
                 : undefined
@@ -1541,7 +1613,7 @@ export default function VideoPlayer({
             }}
           />
 
-          {isLive && (
+          {isLive && sessionRole === 'host' && (
             <div className="absolute top-4 left-4 z-30 flex flex-col gap-2">
               <button
                 onClick={() => setAutoFollowEnabled((prev) => !prev)}
@@ -1554,6 +1626,21 @@ export default function VideoPlayer({
                   {autoFollowStatus === 'face' && 'Tracking: Face'}
                   {autoFollowStatus === 'motion' && 'Tracking: Motion'}
                   {autoFollowStatus === 'unsupported' && 'Tracking unavailable in this browser'}
+                </div>
+              )}
+            </div>
+          )}
+
+          {isLive && sessionRole === 'viewer' && (
+            <div className="absolute top-4 left-4 z-30 flex flex-col gap-2">
+              <div className="bg-black/70 text-white text-xs px-3 py-2 rounded-lg border border-white/20">
+                {renderedAutoFollowEnabled ? 'Host Auto Follow: ON' : 'Host Auto Follow: OFF'}
+              </div>
+              {renderedAutoFollowEnabled && renderedAutoFollowStatus !== 'off' && (
+                <div className="bg-black/60 text-white/90 text-[11px] px-3 py-1.5 rounded-lg border border-white/10">
+                  {renderedAutoFollowStatus === 'face' && 'Tracking: Face'}
+                  {renderedAutoFollowStatus === 'motion' && 'Tracking: Motion'}
+                  {renderedAutoFollowStatus === 'unsupported' && 'Tracking unavailable in this browser'}
                 </div>
               )}
             </div>
@@ -1592,6 +1679,26 @@ export default function VideoPlayer({
           {isLive && sessionStatusMessage && (
             <div className="absolute top-20 left-4 z-30 max-w-sm bg-black/70 text-white text-xs px-3 py-2 rounded-lg border border-white/15">
               {sessionStatusMessage}
+            </div>
+          )}
+
+          {isLive && sessionRole === 'viewer' && onTargetLanguageChange && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 w-[min(92vw,420px)] bg-black/75 text-white rounded-xl border border-white/20 p-3 backdrop-blur">
+              <label className="block text-[12px] font-semibold tracking-wide text-white/90 mb-2">
+                Caption language for this viewer
+              </label>
+              <select
+                value={targetLanguage}
+                onChange={(event) => onTargetLanguageChange(event.target.value)}
+                className="w-full rounded-lg border border-white/30 bg-white text-gray-900 px-4 py-3 text-base font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="Caption language for this viewer"
+              >
+                {viewerCaptionLanguages.map((language) => (
+                  <option key={language.code} value={language.code}>
+                    {language.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -1700,7 +1807,7 @@ export default function VideoPlayer({
                       }
                     }}
                     placeholder="What do you want to know?"
-                    className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 text-sm"
+                    className="w-full px-5 py-3.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 text-base font-medium placeholder:text-gray-500 bg-gray-50 focus:bg-white"
                     autoFocus
                   />
                   <button
@@ -1712,7 +1819,7 @@ export default function VideoPlayer({
                         setDrawnBox(null)
                       }
                     }}
-                    className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all duration-200 font-medium"
+                    className="w-full px-5 py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all duration-200 text-base font-semibold"
                   >
                     Ask
                   </button>

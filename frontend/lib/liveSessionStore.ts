@@ -6,6 +6,7 @@ export type LiveSignalType =
   | 'answer'
   | 'ice-candidate'
   | 'caption'
+  | 'viewport'
   | 'session-ended'
 
 export interface LiveSessionMetadata {
@@ -192,9 +193,9 @@ export const enqueueLiveSignal = (params: {
   }
 
   recipients.forEach((participant) => {
-    if (message.type === 'caption') {
+    if (message.type === 'caption' || message.type === 'viewport') {
       participant.messages = participant.messages.filter(
-        (queuedMessage) => queuedMessage.type !== 'caption'
+        (queuedMessage) => queuedMessage.type !== message.type
       )
     }
     participant.messages.push(message)
