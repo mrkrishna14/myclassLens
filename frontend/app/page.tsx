@@ -87,6 +87,8 @@ interface ViewerDiagnostics {
 }
 
 const VIEWER_CONNECT_TIMEOUT_MS = 25000
+const HOST_VIDEO_MAX_BITRATE_BPS = 6_000_000
+const HOST_VIDEO_MAX_FPS = 30
 
 const parseServerUrls = (value: string | undefined) =>
   (value || '')
@@ -145,6 +147,46 @@ const buildRtcConfiguration = (): RTCConfiguration => {
 }
 
 const RTC_CONFIGURATION: RTCConfiguration = buildRtcConfiguration()
+
+const optimizeOutgoingTrack = (track: MediaStreamTrack) => {
+  if (track.kind === 'video') {
+    try {
+      track.contentHint = 'detail'
+    } catch {
+      // Some browsers may not allow setting contentHint.
+    }
+  }
+}
+
+const tuneSenderForQuality = async (sender: RTCRtpSender, trackKind: 'audio' | 'video') => {
+  if (trackKind !== 'video') return
+  if (typeof sender.getParameters !== 'function' || typeof sender.setParameters !== 'function') return
+
+  try {
+    const params = sender.getParameters()
+    const currentEncodings =
+      Array.isArray(params.encodings) && params.encodings.length > 0 ? params.encodings : [{}]
+    const nextEncodings = currentEncodings.map((encoding) => ({
+      ...encoding,
+      maxBitrate:
+        typeof encoding.maxBitrate === 'number'
+          ? Math.max(encoding.maxBitrate, HOST_VIDEO_MAX_BITRATE_BPS)
+          : HOST_VIDEO_MAX_BITRATE_BPS,
+      maxFramerate:
+        typeof encoding.maxFramerate === 'number'
+          ? Math.max(encoding.maxFramerate, HOST_VIDEO_MAX_FPS)
+          : HOST_VIDEO_MAX_FPS,
+      scaleResolutionDownBy: 1,
+    }))
+
+    await sender.setParameters({
+      ...params,
+      encodings: nextEncodings,
+    })
+  } catch (error) {
+    console.warn('Could not tune outgoing sender quality:', error)
+  }
+}
 
 const LANGUAGES = [
   { code: 'en', name: 'English' },
@@ -468,7 +510,9 @@ export default function Home() {
       const stream = hostStreamRef.current
       if (stream) {
         for (const track of stream.getTracks()) {
-          pc.addTrack(track, stream)
+          optimizeOutgoingTrack(track)
+          const sender = pc.addTrack(track, stream)
+          void tuneSenderForQuality(sender, track.kind as 'audio' | 'video')
         }
       }
 
@@ -935,11 +979,15 @@ export default function Home() {
           (sender: RTCRtpSender) => sender.track?.kind === track.kind
         )
         if (existingSender) {
+          optimizeOutgoingTrack(track)
           existingSender.replaceTrack(track).catch((error: unknown) => {
             console.warn('Failed to replace outgoing track:', error)
           })
+          void tuneSenderForQuality(existingSender, track.kind as 'audio' | 'video')
         } else {
-          pc.addTrack(track, liveStream)
+          optimizeOutgoingTrack(track)
+          const sender = pc.addTrack(track, liveStream)
+          void tuneSenderForQuality(sender, track.kind as 'audio' | 'video')
         }
       }
     })

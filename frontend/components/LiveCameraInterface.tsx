@@ -128,9 +128,10 @@ export default function LiveCameraInterface({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           deviceId: { exact: selectedDeviceId },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
           frameRate: { ideal: 30, max: 60 },
+          resizeMode: 'none',
         },
         audio: true,
       })
@@ -140,9 +141,9 @@ export default function LiveCameraInterface({
       if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
         const caps: any = videoTrack.getCapabilities()
         try {
-          const bestWidth = typeof caps?.width?.max === 'number' ? caps.width.max : 1920
-          const bestHeight = typeof caps?.height?.max === 'number' ? caps.height.max : 1080
-          const bestFps = typeof caps?.frameRate?.max === 'number' ? Math.min(30, caps.frameRate.max) : 30
+          const bestWidth = typeof caps?.width?.max === 'number' ? caps.width.max : 3840
+          const bestHeight = typeof caps?.height?.max === 'number' ? caps.height.max : 2160
+          const bestFps = typeof caps?.frameRate?.max === 'number' ? Math.min(60, caps.frameRate.max) : 30
           const supportsNoResize =
             Array.isArray(caps?.resizeMode) && caps.resizeMode.includes('none')
 
