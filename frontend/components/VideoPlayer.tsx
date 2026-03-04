@@ -123,6 +123,7 @@ export default function VideoPlayer({
     to: string
     interruptSpeech: boolean
     speak: boolean
+    requestTimeMs: number
   } | null>(null)
   const [ttsVoicesReady, setTtsVoicesReady] = useState(false)
   const pendingSpeechRef = useRef<{ text: string; language: string; interrupt: boolean } | null>(null)
@@ -146,7 +147,7 @@ export default function VideoPlayer({
     { code: 'es', name: 'Spanish' },
     { code: 'fr', name: 'French' },
     { code: 'de', name: 'German' },
-    { code: 'zh', name: 'Chinese' },
+    { code: 'zh', name: 'Chinese (Mandarin)' },
     { code: 'ja', name: 'Japanese' },
     { code: 'ko', name: 'Korean' },
     { code: 'pt', name: 'Portuguese' },
@@ -161,7 +162,6 @@ export default function VideoPlayer({
   const normalizeSpeechKey = (text: string) => {
     return text
       .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
   }
@@ -357,7 +357,7 @@ export default function VideoPlayer({
       }
     })
   }, [])
-  
+
   // Map language codes to Web Speech API BCP-47 format
   const getSpeechRecognitionLang = (langCode: string): string => {
     const langMap: { [key: string]: string } = {
@@ -365,7 +365,7 @@ export default function VideoPlayer({
       'es': 'es-ES',
       'fr': 'fr-FR',
       'de': 'de-DE',
-      'zh': 'zh-CN',
+      'zh': 'zh-CN', // Map straight to Mandarin
       'ja': 'ja-JP',
       'ko': 'ko-KR',
       'pt': 'pt-BR',
@@ -385,6 +385,7 @@ export default function VideoPlayer({
   }
 
   // Real-time translation function (only for live streams)
+  const lastTranslationRequestMsRef = useRef<number>(0)
   const translateText = async (
     text: string,
     from: string,
@@ -412,7 +413,9 @@ export default function VideoPlayer({
       return
     }
 
-    const request = { text: normalizedText, from, to, interruptSpeech, speak }
+    const requestTimeMs = Date.now()
+    lastTranslationRequestMsRef.current = requestTimeMs
+    const request = { text: normalizedText, from, to, interruptSpeech, speak, requestTimeMs }
 
     // Coalesce requests while one is in flight so translation updates don't get starved.
     if (isTranslationInFlightRef.current) {
@@ -450,15 +453,20 @@ export default function VideoPlayer({
           `${activeRequest.from}:${activeRequest.to}:${activeRequest.text.toLowerCase()}`
         ] = translated
 
-        setTranslatedCaption(translated)
-        if (activeRequest.speak) {
-          speakText(translated, getSpeechRecognitionLang(activeRequest.to), activeRequest.interruptSpeech)
+        // ONLY apply the UI update if this was the latest request made
+        if (activeRequest.requestTimeMs >= lastTranslationRequestMsRef.current) {
+          setTranslatedCaption(translated)
+          if (activeRequest.speak) {
+            speakText(translated, getSpeechRecognitionLang(activeRequest.to), activeRequest.interruptSpeech)
+          }
         }
       } catch (error) {
         console.error('Translation error:', error)
-        setTranslatedCaption(activeRequest.text)
-        if (activeRequest.speak) {
-          speakText(activeRequest.text, getSpeechRecognitionLang(activeRequest.to), activeRequest.interruptSpeech)
+        if (activeRequest.requestTimeMs >= lastTranslationRequestMsRef.current) {
+          setTranslatedCaption(activeRequest.text)
+          if (activeRequest.speak) {
+            speakText(activeRequest.text, getSpeechRecognitionLang(activeRequest.to), activeRequest.interruptSpeech)
+          }
         }
       }
 
@@ -549,7 +557,12 @@ export default function VideoPlayer({
     if (lastQueuedSpeechKeyRef.current === key) return
     if (lastSeenAt && now - lastSeenAt < 4500) return
 
-    speechQueueRef.current.push({ text: normalized, language })
+    // "I" => "i", to prevent macOS TTS from sometimes reading it as "Capital I".
+    // We only swap it in the local speech queue variable, NOT the actual visual `text` variable
+    let textToSpeak = text.replace(/\bI\b/g, 'i')
+
+    speechQueueRef.current.push({ text: textToSpeak, language })
+    speakNextFromQueue()
     recentSpeechKeysRef.current.set(key, now)
     lastQueuedSpeechKeyRef.current = key
   }
@@ -590,12 +603,23 @@ export default function VideoPlayer({
     isQueueSpeakingRef.current = true
     const utterance = new SpeechSynthesisUtterance(next.text)
     utterance.lang = next.language
-    utterance.rate = 0.98
+
+    // Dynamically adjust the speech rate based on how backed up the queue is
+    // so the TTS naturally speeds up when the speaker talks very quickly
+    const queueLength = speechQueueRef.current.length
+    const dynamicRate = Math.min(1.0 + (queueLength * 0.1), 1.75) // Base 1.0x, max 1.75x
+
+    utterance.rate = dynamicRate
     utterance.pitch = 1
     utterance.volume = 1
 
     const voices = speechSynthesis.getVoices()
-    const matchingVoice = voices.find(voice => voice.lang.startsWith(next.language.split('-')[0]))
+
+    // Attempt exact BCP-47 match first (e.g. 'zh-CN'), then fallback to language prefix (e.g. 'zh')
+    const matchingVoice =
+      voices.find(voice => voice.lang.replace('_', '-') === next.language) ||
+      voices.find(voice => voice.lang.startsWith(next.language.split('-')[0]))
+
     if (matchingVoice) {
       utterance.voice = matchingVoice
     }
@@ -658,13 +682,13 @@ export default function VideoPlayer({
       ttsUnlockedRef.current = true
       setShowTtsEnablePrompt(false)
 
-       if (pendingSpeechRef.current) {
-         const pending = pendingSpeechRef.current
-         pendingSpeechRef.current = null
-         speakText(pending.text, pending.language, pending.interrupt)
-       }
+      if (pendingSpeechRef.current) {
+        const pending = pendingSpeechRef.current
+        pendingSpeechRef.current = null
+        speakText(pending.text, pending.language, pending.interrupt)
+      }
 
-       speakNextFromQueue()
+      speakNextFromQueue()
     } catch (e) {
       // ignore
     }
@@ -702,15 +726,20 @@ export default function VideoPlayer({
     lastDeltaAtRef.current = now
 
     const lang = getSpeechRecognitionLang(targetLanguage)
-    const maxLatencyMs = 520
-    const debounceMs = 130
+
+    // We add a debounce to all languages to give the speech-to-text / translation API 
+    // time to construct the grammar boundary (e.g. "what happens is" vs "what happens") 
+    // without prematurely locking the speech synth and firing duplicates.
+    const isTranslating = captionLanguage !== targetLanguage
+    const maxLatencyMs = isTranslating ? 2500 : 1200
+    const debounceMs = isTranslating ? 600 : 450
 
     // Add delta to buffer and flush in small chunks for speech pacing.
     deltaBufferRef.current = `${deltaBufferRef.current} ${delta}`.trim()
 
     const endsWithPunctuation = /[.!?…。！？]$/.test(delta)
     const bufferWordCount = deltaBufferRef.current.split(/\s+/).filter(Boolean).length
-    const bufferLongEnough = bufferWordCount >= 4
+    const bufferLongEnough = bufferWordCount >= (isTranslating ? 8 : 4)
     const exceededMaxLatency = lastDeltaFlushAtRef.current > 0 && now - lastDeltaFlushAtRef.current >= maxLatencyMs
 
     if (endsWithPunctuation || bufferLongEnough || exceededMaxLatency) {
@@ -729,7 +758,28 @@ export default function VideoPlayer({
       deltaFlushTimerRef.current = null
       flushDeltaBuffer(lang)
     }, debounceMs)
-  }, [translatedCaption, targetLanguage])
+  }, [translatedCaption, targetLanguage, captionLanguage])
+
+  // When the viewer switches languages mid-stream, reset speech state so that
+  // computeDelta doesn't compare old-language text against new-language text
+  // (which would produce garbage deltas or silence).
+  useEffect(() => {
+    lastTranslatedCaptionRef.current = ''
+    deltaBufferRef.current = ''
+    lastDeltaKeyRef.current = ''
+    lastDeltaAtRef.current = 0
+    lastDeltaFlushAtRef.current = 0
+    recentSpeechKeysRef.current.clear()
+    lastQueuedSpeechKeyRef.current = ''
+    speechQueueRef.current = []
+    if (deltaFlushTimerRef.current) {
+      window.clearTimeout(deltaFlushTimerRef.current)
+      deltaFlushTimerRef.current = null
+    }
+    // Cancel any in-progress speech so the old language doesn't keep talking
+    try { speechSynthesis.cancel() } catch (_) { }
+    isQueueSpeakingRef.current = false
+  }, [targetLanguage])
 
   // Ensure voices are loaded (some browsers load them async)
   useEffect(() => {
@@ -789,6 +839,10 @@ export default function VideoPlayer({
       return
     }
 
+    // We do NOT want to instantly read the entire translated sentence aloud.
+    // The previous useEffect block specifically monitors `translatedCaption`
+    // and calculates chronological DELTAS for the TTS synth. Setting this to `true`
+    // completely bypasses delta chunking and stutters the entire history.
     translateText(normalized, captionLanguage, targetLanguage, false, false)
   }, [
     incomingSharedCaption,
@@ -957,18 +1011,18 @@ export default function VideoPlayer({
         setCurrentTime(video.currentTime)
       }
     }
-    
+
     const updateDuration = () => {
       if (!isLive) {
         setDuration(video.duration)
       }
     }
-    
+
     const handlePlay = () => {
       setIsPlaying(true)
       setIsPaused(false)
     }
-    
+
     const handlePause = () => {
       setIsPlaying(false)
       setIsPaused(true)
@@ -1015,12 +1069,12 @@ export default function VideoPlayer({
       recognition.continuous = true
       recognition.interimResults = true
       recognition.maxAlternatives = 1
-      
+
       // Use proper BCP-47 language code for Web Speech API
       const speechLang = getSpeechRecognitionLang(captionLanguage)
       recognition.lang = speechLang
       console.log('🎤 Transcription language set to:', speechLang, '(from:', captionLanguage, ')')
-      
+
       // Optimize for speed and accuracy
       recognition.serviceURI = 'builtin:speech/dictation' // Use built-in for faster response
 
@@ -1029,18 +1083,18 @@ export default function VideoPlayer({
       // Optimize for real-time performance - reduce throttling
       let lastUpdateTime = 0
       const updateThrottle = 50 // Update every 50ms for near real-time response
-      
+
       recognition.onresult = (event: any) => {
         const now = Date.now()
         const lastResult = event.results[event.results.length - 1]
         const isFinal = lastResult?.isFinal
-        
+
         // Process all results quickly, only throttle if too frequent
         if (now - lastUpdateTime < updateThrottle && !isFinal) {
           return
         }
         lastUpdateTime = now
-        
+
         let interimTranscript = ''
         let finalTranscript = ''
 
@@ -1069,7 +1123,7 @@ export default function VideoPlayer({
             translateText(interimText, captionLanguage, targetLanguage, false, false)
           }
         }
-        
+
         // Process final results
         if (finalTranscript.trim()) {
           const finalText = finalTranscript.trim()
@@ -1081,19 +1135,19 @@ export default function VideoPlayer({
             lastInterimSourceRef.current = ''
             translateText(finalText, captionLanguage, targetLanguage, true, false)
           }
-          
+
           // Store final transcript segment
           const segmentEndTime = Date.now()
           const currentSessionStart = sessionStartTime > 0 ? sessionStartTime : segmentStartTime
           const startSeconds = (segmentStartTime - currentSessionStart) / 1000
           const endSeconds = (segmentEndTime - currentSessionStart) / 1000
-          
+
           const newSegment = {
             start: Math.max(0, startSeconds),
             end: Math.max(0, endSeconds),
             text: finalText
           }
-          
+
           transcriptHistoryRef.current.push(newSegment)
           setTranscript(prev => [...transcriptHistoryRef.current])
           segmentStartTime = segmentEndTime
@@ -1170,7 +1224,7 @@ export default function VideoPlayer({
         console.warn('No audio tracks found in stream!')
         setCurrentCaption('No audio detected in stream. Please check your microphone settings.')
       }
-      
+
       try {
         recognition.start()
         recognitionRef.current = recognition
@@ -1208,7 +1262,7 @@ export default function VideoPlayer({
   useEffect(() => {
     const transcribeVideo = async () => {
       if (!videoFile || isTranscribing || isLive) return
-      
+
       setIsTranscribing(true)
       console.log('Starting transcription for video:', videoFile.name, videoFile.size, 'bytes')
       try {
@@ -1284,7 +1338,7 @@ export default function VideoPlayer({
 
     // Update immediately
     updateCaption()
-    
+
     const interval = setInterval(updateCaption, 100)
     return () => clearInterval(interval)
   }, [transcript, currentCaption, isLive])
@@ -1342,55 +1396,55 @@ export default function VideoPlayer({
 
     const video = videoRef.current
     const container = containerRef.current
-    
+
     // Get container and video element positions
     const containerRect = container.getBoundingClientRect()
     const videoRect = video.getBoundingClientRect()
-    
+
     // Calculate video offset within container
     const videoOffsetX = videoRect.left - containerRect.left
     const videoOffsetY = videoRect.top - containerRect.top
-    
+
     // Get dimensions
     const videoDisplayWidth = videoRect.width
     const videoDisplayHeight = videoRect.height
     const videoActualWidth = video.videoWidth
     const videoActualHeight = video.videoHeight
-    
+
     // Calculate center of the bounding box
     const boxCenterX = box.x + box.width / 2
     const boxCenterY = box.y + box.height / 2
-    
+
     // Adjust box center position relative to video element
     const adjustedX = boxCenterX - videoOffsetX
     const adjustedY = boxCenterY - videoOffsetY
-    
+
     // Clamp to video boundaries
     const clampedX = Math.max(0, Math.min(adjustedX, videoDisplayWidth))
     const clampedY = Math.max(0, Math.min(adjustedY, videoDisplayHeight))
-    
+
     // Calculate scaling factors
     const scaleX = videoActualWidth / videoDisplayWidth
     const scaleY = videoActualHeight / videoDisplayHeight
-    
+
     // Scale box center position to actual video dimensions
     const scaledX = clampedX * scaleX
     const scaledY = clampedY * scaleY
-    
+
     // Calculate the box dimensions in actual video coordinates
     const scaledBoxWidth = box.width * scaleX
     const scaledBoxHeight = box.height * scaleY
-    
+
     // Calculate the box position in actual video coordinates
     const scaledBoxX = Math.max(0, Math.min((box.x - videoOffsetX) * scaleX, videoActualWidth - scaledBoxWidth))
     const scaledBoxY = Math.max(0, Math.min((box.y - videoOffsetY) * scaleY, videoActualHeight - scaledBoxHeight))
-    
+
     // Capture screenshot of the exact bounding box area
     const canvas = document.createElement('canvas')
     canvas.width = scaledBoxWidth
     canvas.height = scaledBoxHeight
     const ctx = canvas.getContext('2d')
-    
+
     if (ctx) {
       ctx.drawImage(
         video,
@@ -1406,7 +1460,7 @@ export default function VideoPlayer({
     }
 
     const imageData = canvas.toDataURL('image/png')
-    
+
     const timestamp = isLive ? currentTime : video.currentTime
 
     // Get transcript snippet from current time with context
@@ -1414,7 +1468,7 @@ export default function VideoPlayer({
     const relevantSegments = transcript.filter(
       (seg) => seg.start >= timestamp - contextWindow && seg.start <= timestamp + contextWindow
     )
-    
+
     const transcriptSnippet = relevantSegments.length > 0
       ? relevantSegments.map(seg => seg.text).join(' ')
       : currentCaption || 'No transcript available at this moment.'
@@ -1429,12 +1483,12 @@ export default function VideoPlayer({
           question,
           transcriptSnippet,
           timestamp,
-          targetLanguage: aiLanguage || targetLanguage,
+          targetLanguage: targetLanguage,
         }),
       })
 
       const data = await response.json()
-      
+
       if (data.error) {
         throw new Error(data.error)
       }
@@ -1463,8 +1517,8 @@ export default function VideoPlayer({
 
   const handleJumpToTimestamp = (timestamp: number) => {
     if (isLive || !videoRef.current) return // Can't jump in live streams
-      videoRef.current.currentTime = timestamp
-      setCurrentTime(timestamp)
+    videoRef.current.currentTime = timestamp
+    setCurrentTime(timestamp)
   }
 
   const formatTime = (seconds: number) => {
@@ -1579,9 +1633,9 @@ export default function VideoPlayer({
             style={
               isLive
                 ? {
-                    transform: `translate3d(${renderedTranslateX}%, ${renderedTranslateY}%, 0) scale(${renderedZoom})`,
-                    transformOrigin: 'center center',
-                  }
+                  transform: `translate3d(${renderedTranslateX}%, ${renderedTranslateY}%, 0) scale(${renderedZoom})`,
+                  transformOrigin: 'center center',
+                }
                 : undefined
             }
             onClick={() => {
@@ -1840,16 +1894,18 @@ export default function VideoPlayer({
         {/* Video Controls */}
         <div className="bg-gray-800 p-4">
           <div className="flex items-center gap-4 mb-2">
-            <button
-              onClick={togglePlay}
-              className="p-2 hover:bg-gray-700 rounded transition-colors"
-            >
-              {isPlaying ? (
-                <Pause className="w-5 h-5 text-white" />
-              ) : (
-                <Play className="w-5 h-5 text-white" />
-              )}
-            </button>
+            {!isLive && (
+              <button
+                onClick={togglePlay}
+                className="p-2 hover:bg-gray-700 rounded transition-colors"
+              >
+                {isPlaying ? (
+                  <Pause className="w-5 h-5 text-white" />
+                ) : (
+                  <Play className="w-5 h-5 text-white" />
+                )}
+              </button>
+            )}
 
             <button
               onClick={toggleMute}

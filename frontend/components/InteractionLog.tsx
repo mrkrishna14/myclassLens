@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import { Clock, MessageSquare, Sparkles, User, Bot } from 'lucide-react'
-import { formatMathText } from '@/lib/formatMathText'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 
 interface Interaction {
   id: string
@@ -106,9 +109,14 @@ export default function InteractionLog({
                       )}
                       <div className="flex-1">
                         {interaction.answer ? (
-                          <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">
-                            {formatMathText(interaction.answer)}
-                          </p>
+                          <div className="text-sm text-white leading-relaxed break-words space-y-2 [&_p]:mb-2 [&_ul]:pl-4 [&_ul]:list-disc [&_ul]:mb-2 [&_ol]:pl-4 [&_ol]:list-decimal [&_ol]:mb-2 [&_em]:italic [&_strong]:font-bold">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkMath]}
+                              rehypePlugins={[rehypeKatex]}
+                            >
+                              {interaction.answer}
+                            </ReactMarkdown>
+                          </div>
                         ) : (
                           <div className="flex items-center gap-2 text-sm text-white/90">
                             <span className="inline-flex gap-1">

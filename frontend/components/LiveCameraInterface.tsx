@@ -16,7 +16,7 @@ const LANGUAGES = [
   { code: 'es', name: 'Spanish' },
   { code: 'fr', name: 'French' },
   { code: 'de', name: 'German' },
-  { code: 'zh', name: 'Chinese' },
+  { code: 'zh', name: 'Chinese (Mandarin)' },
   { code: 'ja', name: 'Japanese' },
   { code: 'ko', name: 'Korean' },
   { code: 'pt', name: 'Portuguese' },
@@ -63,18 +63,18 @@ export default function LiveCameraInterface({
     try {
       // Request permission first - this is required for device labels to appear
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      
+
       // Stop the stream immediately - we just needed it for permissions
       stream.getTracks().forEach(track => track.stop())
-      
+
       // Now enumerate devices - labels should be available
       const deviceList = await navigator.mediaDevices.enumerateDevices()
       const videoDevices = deviceList.filter(device => device.kind === 'videoinput')
-      
-      console.log('Found video devices:', videoDevices.map(d => ({ 
-        deviceId: d.deviceId, 
+
+      console.log('Found video devices:', videoDevices.map(d => ({
+        deviceId: d.deviceId,
         label: d.label,
-        kind: d.kind 
+        kind: d.kind
       })))
       // Log each device separately for easier debugging
       videoDevices.forEach((device, index) => {
@@ -84,17 +84,17 @@ export default function LiveCameraInterface({
           kind: device.kind
         })
       })
-      
+
       setDevices(videoDevices)
-      
+
       if (videoDevices.length > 0) {
         // Try to find Continuity Camera or iPhone first
-        const continuityCamera = videoDevices.find(device => 
-          device.label.toLowerCase().includes('iphone') || 
+        const continuityCamera = videoDevices.find(device =>
+          device.label.toLowerCase().includes('iphone') ||
           device.label.toLowerCase().includes('continuity') ||
           device.label.toLowerCase().includes('camera')
         )
-        
+
         setSelectedDeviceId(continuityCamera?.deviceId || videoDevices[0].deviceId)
       } else {
         setError('No cameras found. Make sure your iPhone is connected and Continuity Camera is enabled.')
@@ -126,7 +126,7 @@ export default function LiveCameraInterface({
       })
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
+        video: {
           deviceId: { exact: selectedDeviceId },
           width: { ideal: 3840 },
           height: { ideal: 2160 },
@@ -168,7 +168,7 @@ export default function LiveCameraInterface({
 
       // Store stream in state - will be set to video element when it renders
       setPreviewStream(stream)
-      
+
       // Show language selection (this will render the video element)
       setShowLanguageSelection(true)
       setIsLoading(false)
@@ -179,7 +179,7 @@ export default function LiveCameraInterface({
         message: err.message,
         constraint: err.constraint
       })
-      
+
       if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setError('Camera not found. Please make sure your iPhone is connected and try refreshing devices.')
       } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -235,7 +235,7 @@ export default function LiveCameraInterface({
             <Languages className="w-8 h-8 text-primary-600" />
             <h2 className="text-2xl font-bold text-gray-800">Select Languages</h2>
           </div>
-          
+
           {previewStream && (
             <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-center gap-2">
@@ -275,28 +275,8 @@ export default function LiveCameraInterface({
               </div>
             )}
           </div>
-          
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                🎤 What language are you speaking?
-              </label>
-              <select
-                value={selectedCaptionLang}
-                onChange={(e) => setSelectedCaptionLang(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
-              >
-                {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code} className="text-gray-900 bg-white">
-                    {lang.name}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-sm text-gray-500">
-                Select the language you will speak in during the lecture
-              </p>
-            </div>
 
+          <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 💬 What language do you want captions in?
@@ -435,8 +415,8 @@ export default function LiveCameraInterface({
                     label = `Camera ${index + 1}`
                   }
                   // Common Continuity Camera labels
-                  if (label.toLowerCase().includes('iphone') || 
-                      label.toLowerCase().includes('continuity')) {
+                  if (label.toLowerCase().includes('iphone') ||
+                    label.toLowerCase().includes('continuity')) {
                     label = `📱 ${label} (Continuity Camera)`
                   }
                   return (
@@ -457,18 +437,20 @@ export default function LiveCameraInterface({
               {showSetupInstructions ? 'Hide' : 'Show'} Setup Instructions
             </button>
             <button
-              onClick={handleStartStream}
+              onClick={() => {
+                onLanguageSelection('en', selectedTargetLang, selectedAILang)
+                handleStartStream()
+              }}
               disabled={isLoading || devices.length === 0}
-              className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 active:bg-primary-800 transition-colors font-semibold shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Connecting...
-                </span>
-              ) : (
-                'Start Camera'
-              )}
+              className="flex-1 px-6 py-4 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-all text-lg shadow-lg hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none disabled:hover:shadow-none"
+            >  {isLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Connecting...
+              </span>
+            ) : (
+              'Start Camera'
+            )}
             </button>
           </div>
         </div>

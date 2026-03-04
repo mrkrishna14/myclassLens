@@ -1361,7 +1361,14 @@ export default function Home() {
         incomingSharedCaption={sessionRole === 'viewer' ? incomingSharedCaption : undefined}
         incomingLiveViewport={sessionRole === 'viewer' ? incomingLiveViewport || undefined : undefined}
         disableLocalTranscription={sessionRole === 'viewer'}
-        onTargetLanguageChange={sessionRole === 'viewer' ? setTargetLanguage : undefined}
+        onTargetLanguageChange={
+          sessionRole === 'viewer'
+            ? (lang) => {
+              setTargetLanguage(lang)
+              setAiLanguage(lang)
+            }
+            : undefined
+        }
       />
     )
   }
