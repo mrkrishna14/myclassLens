@@ -1056,6 +1056,9 @@ export default function Home() {
     }
     await leaveActiveSession()
     setVideoFile(null)
+    setSessionError('')
+    setSessionStatusMessage('')
+    clearShareLinkParam()
     setMode('select')
   }
 
@@ -1224,6 +1227,7 @@ export default function Home() {
   if (mode === 'upload') {
     return (
       <UploadInterface
+        onBack={handleBack}
         onVideoUpload={handleVideoUpload}
         onLanguageSelection={handleLanguageSelection}
         captionLanguage={captionLanguage}
@@ -1235,6 +1239,7 @@ export default function Home() {
   if (mode === 'live') {
     return (
       <LiveCameraInterface
+        onBack={handleBack}
         onStreamStart={handleStreamStart}
         onLanguageSelection={handleLanguageSelection}
         captionLanguage={captionLanguage}
@@ -1248,6 +1253,12 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+          <button
+            onClick={handleBack}
+            className="px-6 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold hover:border-gray-400 transition-colors"
+          >
+            Back
+          </button>
           <div className="mb-8 text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Join Live Classroom</h2>
             <p className="text-gray-600">
@@ -1264,7 +1275,7 @@ export default function Home() {
                 value={pendingJoinSession}
                 onChange={(event) => setPendingJoinSession(event.target.value)}
                 placeholder="http://192.168.x.x:3000/?session=..."
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="w-full px-4 py-3 border-2 border-gray-300 text-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               />
             </div>
 
@@ -1325,17 +1336,6 @@ export default function Home() {
               className="flex-1 px-6 py-3 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               {isJoiningSession ? 'Joining...' : 'Join Session'}
-            </button>
-            <button
-              onClick={() => {
-                setMode('select')
-                setSessionError('')
-                setSessionStatusMessage('')
-                clearShareLinkParam()
-              }}
-              className="px-6 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold hover:border-gray-400 transition-colors"
-            >
-              Back
             </button>
           </div>
         </div>

@@ -24,6 +24,7 @@ const LANGUAGES = [
 ]
 
 export default function UploadInterface({
+  onBack,
   onVideoUpload,
   onLanguageSelection,
   captionLanguage,
@@ -173,6 +174,12 @@ export default function UploadInterface({
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+        <button
+          onClick={onBack}
+          className="px-6 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold hover:border-gray-400 transition-colors"
+        >
+          Back
+        </button>
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full mb-4">
             <Video className="w-8 h-8 text-primary-600" />
