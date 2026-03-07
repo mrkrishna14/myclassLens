@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Camera, Video, Languages, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 interface LiveCameraInterfaceProps {
+  onBack: () => Promise<void>
   onStreamStart: (stream: MediaStream) => void
   onLanguageSelection: (caption: string, target: string, ai: string) => void
   captionLanguage: string
@@ -132,7 +133,7 @@ export default function LiveCameraInterface({
           width: { ideal: 3840 },
           height: { ideal: 2160 },
           frameRate: { ideal: 30, max: 60 },
-          resizeMode: 'none',
+          //resizeMode: 'none',
         },
         audio: true,
       })

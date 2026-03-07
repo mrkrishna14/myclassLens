@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import { Upload, Video, Languages } from 'lucide-react'
 
 interface UploadInterfaceProps {
+  onBack: () => Promise<void>
   onVideoUpload: (file: File) => void
   onLanguageSelection: (caption: string, target: string) => void
   captionLanguage: string
