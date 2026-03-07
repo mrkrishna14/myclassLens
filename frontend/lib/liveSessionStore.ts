@@ -113,6 +113,7 @@ export const createLiveSession = (languages: {
     updatedAt: now,
   }
 
+  console.log("CREATE SESSION: " + sessionId)
   sessionStore.set(sessionId, session)
   return {
     sessionId,
@@ -124,7 +125,10 @@ export const createLiveSession = (languages: {
 export const getLiveSession = (sessionId: string) => {
   cleanupStore()
   const session = sessionStore.get(sessionId)
-  if (!session) return null
+  if (!session) {
+    console.log("FAILED to get session " + sessionId)
+    return null
+  }
   return session
 }
 
@@ -146,6 +150,7 @@ export const joinLiveSession = (sessionId: string) => {
   session.participants.set(participantId, viewer)
   session.updatedAt = now
 
+  console.log("JOIN SESSION: " + session.id)
   return {
     sessionId: session.id,
     participantId,
