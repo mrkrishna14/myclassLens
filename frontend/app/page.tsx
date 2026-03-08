@@ -828,6 +828,7 @@ export default function Home() {
           ) {
             return
           }
+          console.log("set answer received to true.")
           viewerDiagnosticsRef.current.answerReceived = true
 
           // Ignore duplicate/late answers after negotiation already reached stable state.
@@ -1102,6 +1103,8 @@ export default function Home() {
         setSessionStatusMessage('')
       } finally {
         setIsJoiningSession(false)
+        //TODO Remove
+        setSessionStatusMessage('Done joining session...')
       }
     },
     [sessionRequest, startViewerPeerConnection]

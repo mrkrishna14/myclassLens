@@ -211,8 +211,8 @@ export const drainLiveSignals = async (params: {
   const messages: LiveSignalMessage[] = rawItems
     .map((s) => {
       try {
-        return JSON.parse(s) as LiveSignalMessage
-      } catch {
+        return s as LiveSignalMessage
+      } catch (e) {
         return null
       }
     })
