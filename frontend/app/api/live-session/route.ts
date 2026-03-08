@@ -38,13 +38,27 @@ const getLanIpv4 = () => {
 const buildShareUrls = (request: NextRequest, sessionId: string) => {
   const protocolHeader = request.headers.get('x-forwarded-proto')
   const protocol = protocolHeader ? protocolHeader.split(',')[0].trim() : 'http'
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? ''
-  const hostPort = host.includes(':') ? host.split(':').at(-1) : ''
-  const port = hostPort && /^\d+$/.test(hostPort) ? `:${hostPort}` : ''
-  const currentOrigin = request.nextUrl.origin
-  const fallbackUrl = `${currentOrigin}?session=${sessionId}`
-  const lanIp = getLanIpv4()
-  const shareUrl = lanIp ? `${protocol}://${lanIp}${port}?session=${sessionId}` : fallbackUrl
+
+  const buildFallbackUrl = () => {
+    const hostHeader = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? ''
+    if (hostHeader) {
+      const hostSplit = hostHeader.includes(':') ? hostHeader.split(':') : [hostHeader]
+      const host = hostSplit.at(0)
+      const hostPort = hostSplit.length != 0 ? hostSplit.at(-1) : ''
+      const port = hostPort && /^\d+$/.test(hostPort) ? `:${hostPort}` : ''
+      return `${protocol}://${host}${port}?session=${sessionId}`
+    }
+  }
+
+  const buildShareUrl = () => {
+    const host     = process.env.URL_HOST ?? 'localhost'
+    const hostPort = parseInt(process.env.URL_PORT ?? '3000')
+    const port = hostPort === -1 ? '' : `:${hostPort}`
+    return `${protocol}://${host}${port}?session=${sessionId}`
+  }
+
+  const shareUrl = buildShareUrl()
+  const fallbackUrl = buildFallbackUrl()
   return { shareUrl, fallbackUrl }
 }
 
