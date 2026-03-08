@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { redis } from './redis'
 
 export type LiveParticipantRole = 'host' | 'viewer'
 export type LiveSignalType =
@@ -29,64 +30,43 @@ interface LiveParticipant {
   role: LiveParticipantRole
   joinedAt: number
   lastSeenAt: number
-  messages: LiveSignalMessage[]
 }
 
 interface LiveSession {
   id: string
   hostParticipantId: string
   metadata: LiveSessionMetadata
-  participants: Map<string, LiveParticipant>
+  participants: Record<string, LiveParticipant>
   createdAt: number
   updatedAt: number
 }
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 8
+const SESSION_TTL = 60 * 60 * 8
 const PARTICIPANT_IDLE_MS = 1000 * 60 * 15
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __classlensLiveSessions: Map<string, LiveSession> | undefined
-}
-
-const sessionStore = globalThis.__classlensLiveSessions ?? new Map<string, LiveSession>()
-if (!globalThis.__classlensLiveSessions) {
-  globalThis.__classlensLiveSessions = sessionStore
-}
 
 const createId = (length: number = 12) =>
   crypto.randomBytes(16).toString('base64url').replace(/[^a-zA-Z0-9]/g, '').slice(0, length)
 
-const cleanupStore = () => {
-  const now = Date.now()
-  sessionStore.forEach((session, sessionId) => {
-    if (now - session.updatedAt > SESSION_TTL_MS) {
-      sessionStore.delete(sessionId)
-      return
-    }
+const messageListKey = (sessionId: string, participantId: string) =>
+  `live:session:${sessionId}:m:${participantId}`
 
-    session.participants.forEach((participant, participantId) => {
-      if (
-        participant.role !== 'host' &&
-        now - participant.lastSeenAt > PARTICIPANT_IDLE_MS
-      ) {
-        session.participants.delete(participantId)
-      }
-    })
+/** Atomically drain oldest N messages from a participant's Redis list (FIFO). */
+const DRAIN_SCRIPT = `
+  local key = KEYS[1]
+  local limit = tonumber(ARGV[1])
+  local len = redis.call('LLEN', key)
+  if len == 0 then return {} end
+  local take = math.min(limit, len)
+  local items = redis.call('LRANGE', key, -take, -1)
+  redis.call('LTRIM', key, 0, -(take + 1))
+  return items
+`
 
-    if (!session.participants.has(session.hostParticipantId)) {
-      sessionStore.delete(sessionId)
-    }
-  })
-}
-
-export const createLiveSession = (languages: {
+export const createLiveSession = async (languages: {
   captionLanguage: string
   targetLanguage: string
   aiLanguage: string
 }) => {
-  cleanupStore()
-
   const sessionId = createId(10)
   const hostParticipantId = createId(14)
   const now = Date.now()
@@ -96,7 +76,6 @@ export const createLiveSession = (languages: {
     role: 'host',
     joinedAt: now,
     lastSeenAt: now,
-    messages: [],
   }
 
   const session: LiveSession = {
@@ -108,13 +87,17 @@ export const createLiveSession = (languages: {
       aiLanguage: languages.aiLanguage || languages.targetLanguage || 'en',
       createdAt: now,
     },
-    participants: new Map<string, LiveParticipant>([[hostParticipantId, host]]),
+    participants: {
+      [hostParticipantId]: host,
+    },
     createdAt: now,
     updatedAt: now,
   }
 
-  console.log("CREATE SESSION: " + sessionId)
-  sessionStore.set(sessionId, session)
+  await redis.set(`live:session:${sessionId}`, session, {
+    ex: SESSION_TTL,
+  })
+
   return {
     sessionId,
     hostParticipantId,
@@ -122,35 +105,35 @@ export const createLiveSession = (languages: {
   }
 }
 
-export const getLiveSession = (sessionId: string) => {
-  cleanupStore()
-  const session = sessionStore.get(sessionId)
+export const getLiveSession = async (sessionId: string) => {
+  const session = await redis.get<LiveSession>(`live:session:${sessionId}`)
+
   if (!session) {
-    console.log("FAILED to get session " + sessionId)
     return null
   }
   return session
 }
 
-export const joinLiveSession = (sessionId: string) => {
-  const session = getLiveSession(sessionId)
+export const joinLiveSession = async (sessionId: string) => {
+  const session = await getLiveSession(sessionId)
   if (!session) return null
 
   const now = Date.now()
   const participantId = createId(14)
 
-  const viewer: LiveParticipant = {
+  session.participants[participantId] = {
     id: participantId,
     role: 'viewer',
     joinedAt: now,
     lastSeenAt: now,
-    messages: [],
   }
 
-  session.participants.set(participantId, viewer)
   session.updatedAt = now
 
-  console.log("JOIN SESSION: " + session.id)
+  await redis.set(`live:session:${sessionId}`, session, {
+    ex: SESSION_TTL,
+  })
+
   return {
     sessionId: session.id,
     participantId,
@@ -159,17 +142,17 @@ export const joinLiveSession = (sessionId: string) => {
   }
 }
 
-export const enqueueLiveSignal = (params: {
+export const enqueueLiveSignal = async (params: {
   sessionId: string
   fromParticipantId: string
   type: LiveSignalType
   payload: unknown
   toParticipantId?: string
 }) => {
-  const session = getLiveSession(params.sessionId)
+  const session = await getLiveSession(params.sessionId)
   if (!session) return { delivered: 0, reason: 'session_not_found' as const }
 
-  const sender = session.participants.get(params.fromParticipantId)
+  const sender = session.participants[params.fromParticipantId]
   if (!sender) return { delivered: 0, reason: 'sender_not_found' as const }
 
   const now = Date.now()
@@ -185,60 +168,70 @@ export const enqueueLiveSignal = (params: {
 
   const recipients: LiveParticipant[] = []
   if (params.toParticipantId) {
-    const target = session.participants.get(params.toParticipantId)
+    const target = session.participants[params.toParticipantId]
     if (!target) {
       return { delivered: 0, reason: 'recipient_not_found' as const }
     }
     recipients.push(target)
   } else {
-    session.participants.forEach((participant) => {
-      if (participant.id === params.fromParticipantId) return
+    for (const participant of Object.values(session.participants)) {
+      if (participant.id === params.fromParticipantId) continue
       recipients.push(participant)
-    })
+    }
   }
 
-  recipients.forEach((participant) => {
-    if (message.type === 'caption' || message.type === 'viewport') {
-      participant.messages = participant.messages.filter(
-        (queuedMessage) => queuedMessage.type !== message.type
-      )
-    }
-    participant.messages.push(message)
-    participant.lastSeenAt = now
-  })
+  const messageJson = JSON.stringify(message)
 
-  session.updatedAt = now
+  for (const participant of recipients) {
+    const key = messageListKey(params.sessionId, participant.id)
+    await redis.lpush(key, messageJson)
+    await redis.expire(key, SESSION_TTL)
+    participant.lastSeenAt = now
+  }
+
+  await redis.set(`live:session:${session.id}`, session, { ex: SESSION_TTL })
   return { delivered: recipients.length, reason: 'ok' as const }
 }
 
-export const drainLiveSignals = (params: {
+export const drainLiveSignals = async (params: {
   sessionId: string
   participantId: string
   limit?: number
 }) => {
-  const session = getLiveSession(params.sessionId)
+  const session = await getLiveSession(params.sessionId)
   if (!session) return { messages: null, reason: 'session_not_found' as const }
 
-  const participant = session.participants.get(params.participantId)
+  const participant = session.participants[params.participantId]
   if (!participant) return { messages: null, reason: 'participant_not_found' as const }
 
-  participant.lastSeenAt = Date.now()
-  session.updatedAt = participant.lastSeenAt
-
   const limit = Math.max(1, Math.min(params.limit ?? 80, 300))
-  const messages = participant.messages.splice(0, limit)
+
+  const key = messageListKey(params.sessionId, params.participantId)
+  const rawItems = (await redis.eval(DRAIN_SCRIPT, [key], [String(limit)])) as string[]
+  const messages: LiveSignalMessage[] = rawItems
+    .map((s) => {
+      try {
+        return JSON.parse(s) as LiveSignalMessage
+      } catch {
+        return null
+      }
+    })
+    .filter((m): m is LiveSignalMessage => m !== null)
+
+  // Do not write the session back. Messages live in Redis lists; writing the session
+  // here would race with join/enqueue and can overwrite newly added participants.
   return { messages, reason: 'ok' as const }
 }
 
-export const leaveLiveSession = (params: { sessionId: string; participantId: string }) => {
-  const session = getLiveSession(params.sessionId)
+export const leaveLiveSession = async (params: { sessionId: string; participantId: string }) => {
+  const session = await getLiveSession(params.sessionId)
   if (!session) return { ok: true, ended: false }
 
-  const participant = session.participants.get(params.participantId)
+  const participant = session.participants[params.participantId]
   if (!participant) return { ok: true, ended: false }
 
   const isHost = participant.id === session.hostParticipantId
-  session.participants.delete(participant.id)
+  delete session.participants[participant.id]
   session.updatedAt = Date.now()
 
   if (isHost) {
@@ -249,15 +242,21 @@ export const leaveLiveSession = (params: { sessionId: string; participantId: str
       payload: { reason: 'host_left' },
       createdAt: Date.now(),
     }
-    session.participants.forEach((viewer) => {
-      viewer.messages.push(shutdownMessage)
-    })
-    sessionStore.delete(session.id)
+    const shutdownJson = JSON.stringify(shutdownMessage)
+    for (const p of Object.values(session.participants)) {
+      const key = messageListKey(session.id, p.id)
+      await redis.lpush(key, shutdownJson)
+      await redis.expire(key, SESSION_TTL)
+    }
+    await redis.del(`live:session:${session.id}`)
     return { ok: true, ended: true }
   }
 
-  if (session.participants.size === 0) {
-    sessionStore.delete(session.id)
+  await redis.del(messageListKey(session.id, participant.id))
+  if (Object.keys(session.participants).length === 0) {
+    await redis.del(`live:session:${session.id}`)
+  } else {
+    await redis.set(`live:session:${session.id}`, session, { ex: SESSION_TTL })
   }
 
   return { ok: true, ended: false }

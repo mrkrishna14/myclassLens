@@ -8,5 +8,8 @@
     "start": "cd frontend && npm start",
     "install": "cd frontend && npm install"
   },
-  "description": "Interactive lecture video tool with AI-powered explanations"
+  "description": "Interactive lecture video tool with AI-powered explanations",
+  "dependencies": {
+    "@upstash/redis": "^1.36.3"
+  }
 }

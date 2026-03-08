@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     const aiLanguage =
       typeof metadata.aiLanguage === 'string' ? metadata.aiLanguage : targetLanguage
 
-    const created = createLiveSession({
+    const created = await createLiveSession({
       captionLanguage,
       targetLanguage,
       aiLanguage,
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
 
-    const joined = joinLiveSession(sessionId)
+    const joined = await joinLiveSession(sessionId)
     if (!joined) {
       return NextResponse.json({ error: 'Session not found or expired' }, { status: 404 })
     }
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Unsupported signal type: ${type}` }, { status: 400 })
     }
 
-    const result = enqueueLiveSignal({
+    const result = await enqueueLiveSignal({
       sessionId,
       fromParticipantId,
       toParticipantId,
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const drained = drainLiveSignals({ sessionId, participantId, limit })
+    const drained = await drainLiveSignals({ sessionId, participantId, limit })
     if (drained.reason === 'session_not_found') {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = leaveLiveSession({ sessionId, participantId })
+    const result = await leaveLiveSession({ sessionId, participantId })
     return NextResponse.json(result)
   }
 

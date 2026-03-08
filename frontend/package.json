@@ -60,6 +60,7 @@
     }
   },
   "dependencies": {
+    "@upstash/redis": "^1.36.3",
     "assemblyai": "^4.23.0",
     "framer-motion": "^10.16.0",
     "groq-sdk": "^0.3.3",
