@@ -95,6 +95,7 @@ export default function VideoPlayer({
   const [sessionQrCodeDataUrl, setSessionQrCodeDataUrl] = useState('')
   const [sessionQrCodeError, setSessionQrCodeError] = useState(false)
   const [showTtsEnablePrompt, setShowTtsEnablePrompt] = useState(false)
+  const [showDrawTip, setShowDrawTip] = useState(true)
   const [liveLayout, setLiveLayout] = useState({
     containerWidth: 0,
     containerHeight: 0,
@@ -1876,15 +1877,17 @@ export default function VideoPlayer({
             </div>
           )}
 
-          {/* Hint bubble for box drawing */}
-          {isLive && (
-            <div
-              className="absolute bottom-28 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-2xl z-30 border border-blue-400 backdrop-blur-sm transform transition-all duration-300 hover:scale-105"
-            >
-              <p className="text-sm font-semibold flex items-center gap-2">
-                <span className="text-lg">✨</span>
-                Draw a box to ask questions
-              </p>
+          {/* Closeable tip for box drawing */}
+          {showDrawTip && (
+            <div className="absolute bottom-28 right-4 bg-gray-800 text-gray-100 px-4 py-3 rounded-lg shadow-lg z-30 border border-gray-600 flex items-center gap-3 max-w-xs">
+              <p className="text-sm flex-1">Tip: Draw a box to ask questions.</p>
+              <button
+                onClick={() => setShowDrawTip(false)}
+                className="p-1 rounded hover:bg-gray-600 text-gray-400 hover:text-white transition-colors flex-shrink-0"
+                aria-label="Dismiss tip"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>
@@ -1979,6 +1982,7 @@ export default function VideoPlayer({
             captionSize={captionSize}
             onCaptionSizeChange={setCaptionSize}
             onClose={() => setShowAccessibility(false)}
+            isLive={isLive}
           />
         )}
       </div>

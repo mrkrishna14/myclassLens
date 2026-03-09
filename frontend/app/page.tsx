@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import VideoPlayer from '@/components/VideoPlayer'
-import UploadInterface from '@/components/UploadInterface'
 import LiveCameraInterface from '@/components/LiveCameraInterface'
 
-type Mode = 'select' | 'upload' | 'live' | 'join' | 'playing'
+type Mode = 'select' | 'live' | 'join' | 'playing'
 type SessionRole = 'host' | 'viewer' | null
 type LiveSignalType = 'offer' | 'answer' | 'ice-candidate' | 'caption' | 'viewport' | 'session-ended'
 
@@ -305,6 +304,13 @@ const parseViewportSignalPayload = (payload: unknown): ViewportSignalPayload | n
     autoFollowEnabled,
     autoFollowStatus,
   }
+}
+
+const getPlaceholderUrl = () => {
+  const host = process.env.URL_HOST ?? 'localhost'
+  const hostPort = parseInt(process.env.URL_PORT ?? '3000')
+  const port = hostPort === -1 ? '' : `:${hostPort}`
+  return `https://${host}${port}?session=...`
 }
 
 export default function Home() {
@@ -994,15 +1000,6 @@ export default function Home() {
     })
   }, [liveStream, sessionRole])
 
-  const handleVideoUpload = (file: File) => {
-    console.log('handleVideoUpload called with file:', file.name, file.size)
-    setVideoFile(file)
-    const url = URL.createObjectURL(file)
-    console.log('Created video URL:', url)
-    setVideoUrl(url)
-    setMode('playing')
-  }
-
   const handleStreamStart = async (stream: MediaStream) => {
     console.log('Live stream started')
     setLiveStream(stream)
@@ -1183,59 +1180,54 @@ export default function Home() {
 
   if (mode === 'select') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+      <div className="min-h-screen bg-[#0a1628] relative overflow-hidden flex flex-col items-center justify-center p-6">
+        {/* Curvy divide background */}
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[#0a1628]" />
+          <div className="absolute inset-0 bg-[#0f2847]" />
+          <svg
+            className="absolute bottom-0 w-full h-1/2"
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+          >
+            <path
+              fill="#0a1628"
+              d="M0,96L48,112C96,128,192,160,288,165.3C384,171,480,149,576,138.7C672,128,768,128,864,144C960,160,1056,192,1152,197.3C1248,203,1344,181,1392,170.7L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+            />
+          </svg>
+        </div>
+
+        <div className="relative z-10 bg-[#2a4a7a] backdrop-blur-sm rounded-2xl shadow-2xl shadow-black/30 border border-white/15 p-8 max-w-md w-full">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">ClassLens</h1>
-            <p className="text-gray-600">
-              Choose how you want to start your lecture session
+            <h1 className="text-4xl font-bold tracking-tight mb-2 bg-gradient-to-r from-white via-amber-50 to-orange-200 bg-clip-text text-transparent">
+              ClassLens
+            </h1>
+            <p className="text-slate-400">
+              Real-time lecture capture with live captions
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <button
-              onClick={() => setMode('upload')}
-              className="p-8 border-2 border-gray-300 rounded-xl hover:border-primary-500 hover:bg-primary-50 transition-all text-left group"
-            >
-              <div className="text-4xl mb-4 group-hover:scale-110 transition-transform">📹</div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Upload Video</h3>
-              <p className="text-gray-600 text-sm">
-                Upload a pre-recorded lecture video to analyze and interact with
-              </p>
-            </button>
-
-            <button
-              onClick={() => setMode('live')}
-              className="p-8 border-2 border-gray-300 rounded-xl hover:border-primary-500 hover:bg-primary-50 transition-all text-left group"
-            >
-              <div className="text-4xl mb-4 group-hover:scale-110 transition-transform">📷</div>
-              <h3 className="text-xl font-bold text-gray-800 mb-2">Live Camera</h3>
-              <p className="text-gray-600 text-sm">
-                Use your camera (including iPhone wirelessly) for real-time lecture capture
-              </p>
-            </button>
-          </div>
+          <button
+            onClick={() => setMode('live')}
+            className="w-full p-6 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 hover:border-white/25 transition-all text-left group"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-2xl group-hover:scale-110 transition-transform">📷</span>
+              <h3 className="text-xl font-semibold text-white">Live Camera</h3>
+            </div>
+            <p className="text-slate-400 text-sm">
+              Use your camera for real-time lecture capture
+            </p>
+          </button>
 
           <button
             onClick={() => setMode('join')}
-            className="w-full mt-6 p-4 border-2 border-dashed border-gray-300 rounded-xl hover:border-primary-500 hover:bg-primary-50 transition-all text-gray-700 font-semibold"
+            className="w-full mt-4 p-4 rounded-xl border border-dashed border-white/20 hover:bg-white/5 hover:border-white/30 transition-all text-slate-300 font-medium"
           >
             Join Live Classroom
           </button>
         </div>
       </div>
-    )
-  }
-
-  if (mode === 'upload') {
-    return (
-      <UploadInterface
-        onBack={handleBack}
-        onVideoUpload={handleVideoUpload}
-        onLanguageSelection={handleLanguageSelection}
-        captionLanguage={captionLanguage}
-        targetLanguage={targetLanguage}
-      />
     )
   }
 
@@ -1254,65 +1246,81 @@ export default function Home() {
 
   if (mode === 'join') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+      <div className="min-h-screen bg-[#0a1628] relative overflow-hidden flex items-center justify-center p-6">
+        {/* Curvy divide background */}
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[#0a1628]" />
+          <div className="absolute inset-0 bg-[#0f2847]" />
+          <svg
+            className="absolute bottom-0 w-full h-1/2"
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+          >
+            <path
+              fill="#0a1628"
+              d="M0,96L48,112C96,128,192,160,288,165.3C384,171,480,149,576,138.7C672,128,768,128,864,144C960,160,1056,192,1152,197.3C1248,203,1344,181,1392,170.7L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+            />
+          </svg>
+        </div>
+
+        <div className="relative z-10 bg-[#2a4a7a] backdrop-blur-sm rounded-2xl shadow-2xl shadow-black/30 border border-white/15 pt-5 px-8 pb-8 max-w-md w-full">
           <button
             onClick={handleBack}
-            className="px-6 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold hover:border-gray-400 transition-colors"
+            className="mb-6 -ml-1 px-4 py-2 rounded-lg border border-white/25 text-slate-300 font-medium hover:bg-white/5 hover:border-white/40 transition-colors"
           >
             Back
           </button>
           <div className="mb-8 text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Join Live Classroom</h2>
-            <p className="text-gray-600">
+            <h2 className="text-2xl font-bold text-white mb-2">Join Live Classroom</h2>
+            <p className="text-slate-400">
               Paste the share link or session ID from your teacher.
             </p>
           </div>
 
           <div className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 Session Link or ID
               </label>
               <input
                 value={pendingJoinSession}
                 onChange={(event) => setPendingJoinSession(event.target.value)}
-                placeholder="http://192.168.x.x:3000/?session=..."
-                className="w-full px-4 py-3 border-2 border-gray-300 text-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                placeholder={getPlaceholderUrl()}
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/5 text-white placeholder-slate-400 focus:ring-2 focus:ring-white/30 focus:border-white/40"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 Caption Translation Language
               </label>
               <select
                 value={targetLanguage}
                 onChange={(event) => setTargetLanguage(event.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900"
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/5 text-white focus:ring-2 focus:ring-white/30 focus:border-white/40"
               >
                 {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
+                  <option key={lang.code} value={lang.code} className="bg-[#1e3a5f] text-white">
                     {lang.name}
                   </option>
                 ))}
               </select>
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-slate-400">
                 You can also change this after you auto-join and the live stream opens.
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 AI Explanation Language
               </label>
               <select
                 value={aiLanguage}
                 onChange={(event) => setAiLanguage(event.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900"
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/5 text-white focus:ring-2 focus:ring-white/30 focus:border-white/40"
               >
                 {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
+                  <option key={lang.code} value={lang.code} className="bg-[#1e3a5f] text-white">
                     {lang.name}
                   </option>
                 ))}
@@ -1321,13 +1329,13 @@ export default function Home() {
           </div>
 
           {sessionStatusMessage && (
-            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+            <div className="mt-4 rounded-lg border border-blue-400/30 bg-blue-500/20 px-4 py-3 text-sm text-blue-200">
               {sessionStatusMessage}
             </div>
           )}
 
           {sessionError && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/20 px-4 py-3 text-sm text-red-200">
               {sessionError}
             </div>
           )}
@@ -1336,7 +1344,7 @@ export default function Home() {
             <button
               onClick={handleJoinSession}
               disabled={isJoiningSession}
-              className="flex-1 px-6 py-3 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 px-6 py-3 rounded-xl bg-white text-[#0a1628] font-semibold hover:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               {isJoiningSession ? 'Joining...' : 'Join Session'}
             </button>
