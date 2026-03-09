@@ -1788,11 +1788,10 @@ export default function VideoPlayer({
             <BoundingBoxDrawer
               onComplete={(box) => {
                 setDrawnBox(box)
-                setShowBoundingBoxDrawer(false)
                 setShowQuestionPanel(true)
               }}
               onCancel={() => {
-                setShowBoundingBoxDrawer(false)
+                setShowQuestionPanel(false)
               }}
             />
           )}
@@ -1815,7 +1814,6 @@ export default function VideoPlayer({
                   onClick={() => {
                     setShowQuestionPanel(false)
                     setDrawnBox(null)
-                    setShowBoundingBoxDrawer(true)
                   }}
                   className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
                 >

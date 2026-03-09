@@ -14,6 +14,12 @@ export default function BoundingBoxDrawer({ onComplete, onCancel }: BoundingBoxD
   const [currentBox, setCurrentBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  const turnOff = () => {
+    setIsDrawing(false)
+    setStartPos(null)
+    setCurrentBox(null)
+  }
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
@@ -40,16 +46,14 @@ export default function BoundingBoxDrawer({ onComplete, onCancel }: BoundingBoxD
   const handleMouseUp = () => {
     if (isDrawing && currentBox && currentBox.width > 10 && currentBox.height > 10) {
       onComplete(currentBox)
-    } else {
-      setIsDrawing(false)
-      setStartPos(null)
-      setCurrentBox(null)
     }
+    turnOff()
   }
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        turnOff()
         onCancel()
       }
     }
