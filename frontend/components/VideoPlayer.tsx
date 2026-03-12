@@ -1797,7 +1797,7 @@ export default function VideoPlayer({
                   ["ar", "شرح هذا"],
                   ["hi", "इसे समझाओ"],
                 ])
-                handleBoxQuestion(box, langs.get(targetLanguage) ?? langs.get("en"))
+                handleBoxQuestion(box, langs.get(targetLanguage) ?? "Explain this")
               }}
               onCancel={() => {
               }}
