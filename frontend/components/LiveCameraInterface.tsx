@@ -231,18 +231,34 @@ export default function LiveCameraInterface({
 
   if (showLanguageSelection) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+      <div className="min-h-screen bg-[#0a1628] relative overflow-hidden flex items-center justify-center p-4">
+        {/* Curvy divide background */}
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[#0a1628]" />
+          <div className="absolute inset-0 bg-[#0f2847]" />
+          <svg
+            className="absolute bottom-0 w-full h-1/2"
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+          >
+            <path
+              fill="#0a1628"
+              d="M0,96L48,112C96,128,192,160,288,165.3C384,171,480,149,576,138.7C672,128,768,128,864,144C960,160,1056,192,1152,197.3C1248,203,1344,181,1392,170.7L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+            />
+          </svg>
+        </div>
+
+        <div className="relative z-10 bg-[#2a4a7a] backdrop-blur-sm rounded-2xl shadow-2xl shadow-black/30 border border-white/15 p-8 max-w-2xl w-full">
           <div className="flex items-center gap-3 mb-4">
-            <Languages className="w-8 h-8 text-primary-600" />
-            <h2 className="text-2xl font-bold text-gray-800">Select Languages</h2>
+            <Languages className="w-8 h-8 text-blue-300" />
+            <h2 className="text-2xl font-bold text-white">Select Languages</h2>
           </div>
 
           {previewStream && (
-            <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="mb-6 p-3 bg-emerald-500/20 border border-emerald-400/30 rounded-lg">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
-                <p className="text-sm text-green-800 font-semibold">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <p className="text-sm text-emerald-200 font-semibold">
                   Camera connected and streaming
                 </p>
               </div>
@@ -280,41 +296,41 @@ export default function LiveCameraInterface({
 
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 💬 What language do you want captions in?
               </label>
               <select
                 value={selectedTargetLang}
                 onChange={(e) => setSelectedTargetLang(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/5 text-white focus:ring-2 focus:ring-white/30 focus:border-white/40"
               >
                 {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code} className="text-gray-900 bg-white">
+                  <option key={lang.code} value={lang.code} className="bg-[#1e3a5f] text-white">
                     {lang.name}
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-slate-400">
                 Captions will be translated to this language in real-time
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 🤖 What language should AI explanations be in?
               </label>
               <select
                 value={selectedAILang}
                 onChange={(e) => setSelectedAILang(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/5 text-white focus:ring-2 focus:ring-white/30 focus:border-white/40"
               >
                 {LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code} className="text-gray-900 bg-white">
+                  <option key={lang.code} value={lang.code} className="bg-[#1e3a5f] text-white">
                     {lang.name}
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-slate-400">
                 When you ask questions, AI will respond in this language
               </p>
             </div>
@@ -322,13 +338,13 @@ export default function LiveCameraInterface({
             <div className="flex gap-4 pt-4">
               <button
                 onClick={handleStopPreview}
-                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-lg hover:bg-gray-100 hover:border-gray-400 transition-colors font-medium text-gray-700"
+                className="flex-1 px-6 py-3 rounded-lg border border-white/20 bg-white/5 hover:bg-white/10 transition-colors font-medium text-slate-300"
               >
                 Back
               </button>
               <button
                 onClick={handleContinue}
-                className="flex-1 px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 active:bg-primary-800 transition-colors font-semibold shadow-md hover:shadow-lg"
+                className="flex-1 px-6 py-3 bg-white text-[#0a1628] rounded-lg hover:bg-slate-100 transition-colors font-semibold shadow-lg"
               >
                 Start Live Session
               </button>
@@ -340,41 +356,57 @@ export default function LiveCameraInterface({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-2xl w-full">
+    <div className="min-h-screen bg-[#0a1628] relative overflow-hidden flex items-center justify-center p-4">
+      {/* Curvy divide background */}
+      <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-[#0a1628]" />
+        <div className="absolute inset-0 bg-[#0f2847]" />
+        <svg
+          className="absolute bottom-0 w-full h-1/2"
+          viewBox="0 0 1440 320"
+          preserveAspectRatio="none"
+        >
+          <path
+            fill="#0a1628"
+            d="M0,96L48,112C96,128,192,160,288,165.3C384,171,480,149,576,138.7C672,128,768,128,864,144C960,160,1056,192,1152,197.3C1248,203,1344,181,1392,170.7L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+          />
+        </svg>
+      </div>
+
+      <div className="relative z-10 bg-[#2a4a7a] backdrop-blur-sm rounded-2xl shadow-2xl shadow-black/30 border border-white/15 p-8 max-w-2xl w-full">
         <button
           onClick={onBack}
-          className="px-6 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold hover:border-gray-400 transition-colors"
+          className="px-4 py-2 rounded-lg border border-white/25 text-slate-300 font-medium hover:bg-white/5 hover:border-white/40 transition-colors"
         >
           Back
         </button>
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full mb-4">
-            <Camera className="w-8 h-8 text-primary-600" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-white/10 rounded-full mb-4">
+            <Camera className="w-8 h-8 text-blue-300" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">ClassLens Live</h1>
-          <p className="text-gray-600">
+          <h1 className="text-3xl font-bold text-white mb-2">ClassLens Live</h1>
+          <p className="text-slate-400">
             Connect your camera for real-time lecture capture
           </p>
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-sm text-slate-400 mt-2">
             Using Continuity Camera? Make sure your iPhone is connected and appears in Photo Booth first.
           </p>
         </div>
 
         {showSetupInstructions && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mb-6 p-4 bg-blue-500/20 border border-blue-400/30 rounded-lg">
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <AlertCircle className="w-5 h-5 text-blue-300 mt-0.5 flex-shrink-0" />
               <div className="flex-1">
-                <h3 className="font-semibold text-blue-900 mb-2">iPhone Camera Setup</h3>
-                <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
+                <h3 className="font-semibold text-blue-200 mb-2">iPhone Camera Setup</h3>
+                <ol className="list-decimal list-inside space-y-1 text-sm text-slate-300">
                   <li>Install a camera app like <strong>EpocCam</strong> or <strong>DroidCam</strong> on your iPhone</li>
                   <li>Install the corresponding desktop app on your computer</li>
                   <li>Connect iPhone and computer to the same Wi-Fi network</li>
                   <li>Open the app on both devices and connect</li>
                   <li>Your iPhone camera will appear as a webcam option below</li>
                 </ol>
-                <p className="text-xs text-blue-600 mt-2">
+                <p className="text-xs text-slate-400 mt-2">
                   <strong>Alternative:</strong> If using macOS, you can use Continuity Camera by connecting your iPhone via USB or wirelessly.
                 </p>
               </div>
@@ -384,27 +416,27 @@ export default function LiveCameraInterface({
 
         <div className="space-y-4">
           {error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg">
               <div className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-red-600" />
-                <p className="text-sm text-red-800">{error}</p>
+                <AlertCircle className="w-5 h-5 text-red-300" />
+                <p className="text-sm text-red-200">{error}</p>
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-slate-300 mb-2">
               Select Camera
             </label>
             {devices.length === 0 ? (
-              <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center">
-                <p className="text-sm text-gray-600 mb-2">No cameras found</p>
-                <p className="text-xs text-gray-500 mb-3">
+              <div className="p-4 border border-dashed border-white/25 rounded-lg text-center">
+                <p className="text-sm text-slate-400 mb-2">No cameras found</p>
+                <p className="text-xs text-slate-400 mb-3">
                   Make sure your iPhone is connected via USB or wirelessly, and Continuity Camera is enabled.
                 </p>
                 <button
                   onClick={loadDevices}
-                  className="text-sm text-primary-600 hover:text-primary-700 font-medium"
+                  className="text-sm text-blue-300 hover:text-blue-200 font-medium"
                 >
                   Refresh Devices
                 </button>
@@ -413,7 +445,7 @@ export default function LiveCameraInterface({
               <select
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white text-gray-900 font-medium"
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/5 text-white focus:ring-2 focus:ring-white/30 focus:border-white/40"
               >
                 {devices.map((device, index) => {
                   // Better label handling for Continuity Camera
@@ -428,7 +460,7 @@ export default function LiveCameraInterface({
                     label = `📱 ${label} (Continuity Camera)`
                   }
                   return (
-                    <option key={device.deviceId} value={device.deviceId}>
+                    <option key={device.deviceId} value={device.deviceId} className="bg-[#1e3a5f] text-white">
                       {label}
                     </option>
                   )
@@ -440,7 +472,7 @@ export default function LiveCameraInterface({
           <div className="flex gap-3">
             <button
               onClick={() => setShowSetupInstructions(!showSetupInstructions)}
-              className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
+              className="flex-1 px-4 py-2 rounded-lg border border-white/20 bg-white/5 hover:bg-white/10 transition-colors text-sm font-medium text-slate-300"
             >
               {showSetupInstructions ? 'Hide' : 'Show'} Setup Instructions
             </button>
@@ -450,15 +482,16 @@ export default function LiveCameraInterface({
                 handleStartStream()
               }}
               disabled={isLoading || devices.length === 0}
-              className="flex-1 px-6 py-4 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-all text-lg shadow-lg hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none disabled:hover:shadow-none"
-            >  {isLoading ? (
-              <span className="flex items-center justify-center gap-2">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                Connecting...
-              </span>
-            ) : (
-              'Start Camera'
-            )}
+              className="flex-1 px-6 py-4 rounded-xl bg-white text-[#0a1628] font-semibold hover:bg-slate-100 transition-all text-lg shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-[#0a1628] border-t-transparent rounded-full animate-spin"></div>
+                  Connecting...
+                </span>
+              ) : (
+                'Start Camera'
+              )}
             </button>
           </div>
         </div>

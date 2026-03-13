@@ -8,6 +8,7 @@ interface AccessibilityPanelProps {
   captionSize: 'small' | 'medium' | 'large'
   onCaptionSizeChange: (size: 'small' | 'medium' | 'large') => void
   onClose: () => void
+  isLive?: boolean
 }
 
 export default function AccessibilityPanel({
@@ -16,6 +17,7 @@ export default function AccessibilityPanel({
   captionSize,
   onCaptionSizeChange,
   onClose,
+  isLive = false,
 }: AccessibilityPanelProps) {
   return (
     <div className="bg-gray-800 border-t border-gray-700 p-4">
@@ -30,30 +32,32 @@ export default function AccessibilityPanel({
       </div>
 
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm text-gray-300 mb-2">
-            Playback Speed: {playbackRate}x
-          </label>
-          <input
-            type="range"
-            min="0.25"
-            max="2"
-            step="0.25"
-            value={playbackRate}
-            onChange={(e) => onPlaybackRateChange(parseFloat(e.target.value))}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>0.25x</span>
-            <span>0.5x</span>
-            <span>0.75x</span>
-            <span>1x</span>
-            <span>1.25x</span>
-            <span>1.5x</span>
-            <span>1.75x</span>
-            <span>2x</span>
+        {!isLive && (
+          <div>
+            <label className="block text-sm text-gray-300 mb-2">
+              Playback Speed: {playbackRate}x
+            </label>
+            <input
+              type="range"
+              min="0.25"
+              max="2"
+              step="0.25"
+              value={playbackRate}
+              onChange={(e) => onPlaybackRateChange(parseFloat(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span>0.25x</span>
+              <span>0.5x</span>
+              <span>0.75x</span>
+              <span>1x</span>
+              <span>1.25x</span>
+              <span>1.5x</span>
+              <span>1.75x</span>
+              <span>2x</span>
+            </div>
           </div>
-        </div>
+        )}
 
         <div>
           <label className="block text-sm text-gray-300 mb-2">

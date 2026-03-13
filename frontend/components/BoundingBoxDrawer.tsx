@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { X } from 'lucide-react'
 
 interface BoundingBoxDrawerProps {
   onComplete: (box: { x: number; y: number; width: number; height: number }) => void
@@ -13,6 +12,12 @@ export default function BoundingBoxDrawer({ onComplete, onCancel }: BoundingBoxD
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null)
   const [currentBox, setCurrentBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const turnOff = () => {
+    setIsDrawing(false)
+    setStartPos(null)
+    setCurrentBox(null)
+  }
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!containerRef.current) return
@@ -40,16 +45,14 @@ export default function BoundingBoxDrawer({ onComplete, onCancel }: BoundingBoxD
   const handleMouseUp = () => {
     if (isDrawing && currentBox && currentBox.width > 10 && currentBox.height > 10) {
       onComplete(currentBox)
-    } else {
-      setIsDrawing(false)
-      setStartPos(null)
-      setCurrentBox(null)
     }
+    turnOff()
   }
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        turnOff()
         onCancel()
       }
     }
@@ -78,19 +81,6 @@ export default function BoundingBoxDrawer({ onComplete, onCancel }: BoundingBoxD
           }}
         />
       )}
-      
-      <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white p-3 rounded-lg">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="font-medium">Draw a box around the area you want to ask about</span>
-          <button
-            onClick={onCancel}
-            className="ml-2 p-1 hover:bg-gray-700 rounded"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <p className="text-sm text-gray-300">Press ESC to cancel</p>
-      </div>
     </div>
   )
 }

@@ -48,7 +48,8 @@ ClassLens is a web-based platform that lets users upload and interact with pre-r
 
 ```
 classLens/
-├── frontend/              # All frontend code
+│── docs/                 # Markdown documentation
+├── frontend/             # All frontend code
 │   ├── app/              # Next.js app directory
 │   │   ├── api/          # API routes (transcribe, explain)
 │   │   ├── globals.css
@@ -71,8 +72,8 @@ classLens/
 ### Prerequisites
 
 - Node.js 18+ and npm/yarn
-- Groq API key (FREE - see [GROQ_SETUP.md](./GROQ_SETUP.md) for instructions)
-- AssemblyAI API key (FREE - see [GROQ_SETUP.md](./GROQ_SETUP.md) for instructions)
+- Groq API key (FREE - see [GROQ_SETUP.md](./docs/GROQ_SETUP.md) for instructions)
+- AssemblyAI API key (FREE - see [GROQ_SETUP.md](./docs/GROQ_SETUP.md) for instructions)
 
 ### Installation
 
@@ -90,7 +91,7 @@ cd frontend && npm install
 ```
 
 3. **Set up API keys** (REQUIRED - 100% FREE):
-   - See [GROQ_SETUP.md](./GROQ_SETUP.md) for complete instructions
+   - See [GROQ_SETUP.md](./docs/GROQ_SETUP.md) for complete instructions
    - Quick version:
      ```bash
      cd frontend
@@ -138,7 +139,7 @@ cd frontend && npm run dev
 ### Option 2: Live Camera (NEW!)
 
 1. **Set Up iPhone Camera**
-   - See [IPHONE_CAMERA_SETUP.md](./IPHONE_CAMERA_SETUP.md) for detailed instructions
+   - See [IPHONE_CAMERA_SETUP.md](./docs/IPHONE_CAMERA_SETUP.md) for detailed instructions
    - Install a camera app (EpocCam, DroidCam, or use Continuity Camera on Mac)
    - Connect iPhone and computer to the same Wi-Fi network
 
@@ -167,7 +168,7 @@ cd frontend && npm run dev
 
 **⚠️ IMPORTANT: You must set up the free APIs before using ClassLens.**
 
-See **[GROQ_SETUP.md](./GROQ_SETUP.md)** for complete, step-by-step instructions.
+See **[GROQ_SETUP.md](./docs/GROQ_SETUP.md)** for complete, step-by-step instructions.
 
 **Quick Summary:**
 1. Get Groq API key from [console.groq.com](https://console.groq.com) - **FREE, no credit card**
@@ -230,7 +231,7 @@ Transcribes video audio to text.
 
 ## Live Camera Setup
 
-**For iPhone wireless camera setup, see [IPHONE_CAMERA_SETUP.md](./IPHONE_CAMERA_SETUP.md)**
+**For iPhone wireless camera setup, see [IPHONE_CAMERA_SETUP.md](./docs/IPHONE_CAMERA_SETUP.md)**
 
 Quick options:
 - **EpocCam** (Recommended) - Easy setup, free version available

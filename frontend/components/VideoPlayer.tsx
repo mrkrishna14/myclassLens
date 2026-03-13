@@ -77,8 +77,6 @@ export default function VideoPlayer({
   const [duration, setDuration] = useState(0)
   const [isPaused, setIsPaused] = useState(true)
   const [showBoundingBoxDrawer, setShowBoundingBoxDrawer] = useState(true) // Always enabled for live streams
-  const [drawnBox, setDrawnBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
-  const [showQuestionPanel, setShowQuestionPanel] = useState(false)
   const [interactions, setInteractions] = useState<Interaction[]>([])
   const [currentCaption, setCurrentCaption] = useState('')
   const [translatedCaption, setTranslatedCaption] = useState('')
@@ -95,6 +93,7 @@ export default function VideoPlayer({
   const [sessionQrCodeDataUrl, setSessionQrCodeDataUrl] = useState('')
   const [sessionQrCodeError, setSessionQrCodeError] = useState(false)
   const [showTtsEnablePrompt, setShowTtsEnablePrompt] = useState(false)
+  const [showDrawTip, setShowDrawTip] = useState(true)
   const [liveLayout, setLiveLayout] = useState({
     containerWidth: 0,
     containerHeight: 0,
@@ -1488,6 +1487,7 @@ export default function VideoPlayer({
       })
 
       const data = await response.json()
+      console.log(JSON.stringify(data))
 
       if (data.error) {
         throw new Error(data.error)
@@ -1507,7 +1507,6 @@ export default function VideoPlayer({
 
       setInteractions((prev) => [...prev, newInteraction])
       setShowBoundingBoxDrawer(true)
-      setDrawnBox(null)
       streamAnswerToPanel(interactionId, finalExplanation)
     } catch (error) {
       console.error('Error getting explanation:', error)
@@ -1787,106 +1786,35 @@ export default function VideoPlayer({
           {isLive && showBoundingBoxDrawer && (
             <BoundingBoxDrawer
               onComplete={(box) => {
-                setDrawnBox(box)
-                setShowBoundingBoxDrawer(false)
-                setShowQuestionPanel(true)
+                const langs = new Map<string, string>([
+                  ["en", "Explain this"],
+                  ["es", "Explica esto"],
+                  ["fr", "Expliquez cela"],
+                  ["de", "Erkläre dies"],
+                  ["zh", "解释一下"],
+                  ["ko", "이것을 설명해 주세요"],
+                  ["pt", "Explique isso"],
+                  ["ar", "شرح هذا"],
+                  ["hi", "इसे समझाओ"],
+                ])
+                handleBoxQuestion(box, langs.get(targetLanguage) ?? "Explain this")
               }}
               onCancel={() => {
-                setShowBoundingBoxDrawer(false)
               }}
             />
           )}
 
-          {/* Question Panel */}
-          {showQuestionPanel && drawnBox && (
-            <div
-              className="absolute bg-white rounded-xl shadow-2xl p-5 z-20 min-w-[300px] max-w-sm border border-gray-200 transform transition-all duration-200 backdrop-blur-xl"
-              style={{
-                left: `${Math.min(drawnBox.x + 20, window.innerWidth - 320)}px`,
-                top: `${Math.min(drawnBox.y + 20, window.innerHeight - 280)}px`,
-              }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  <h3 className="text-base font-semibold text-gray-900">Ask about this</h3>
-                </div>
-                <button
-                  onClick={() => {
-                    setShowQuestionPanel(false)
-                    setDrawnBox(null)
-                    setShowBoundingBoxDrawer(true)
-                  }}
-                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4 text-gray-600" />
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                <button
-                  onClick={() => {
-                    handleBoxQuestion(drawnBox, 'Explain this')
-                    setShowQuestionPanel(false)
-                    setDrawnBox(null)
-                  }}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-semibold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transform hover:scale-105"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Explain this
-                </button>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-3 bg-white text-gray-500 font-medium">or ask anything</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    id="custom-question-input"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
-                        handleBoxQuestion(drawnBox, (e.target as HTMLInputElement).value.trim())
-                        setShowQuestionPanel(false)
-                        setDrawnBox(null)
-                      }
-                    }}
-                    placeholder="What do you want to know?"
-                    className="w-full px-5 py-3.5 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 text-base font-medium placeholder:text-gray-500 bg-gray-50 focus:bg-white"
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => {
-                      const input = document.getElementById('custom-question-input') as HTMLInputElement
-                      if (input && input.value.trim()) {
-                        handleBoxQuestion(drawnBox, input.value.trim())
-                        setShowQuestionPanel(false)
-                        setDrawnBox(null)
-                      }
-                    }}
-                    className="w-full px-5 py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all duration-200 text-base font-semibold"
-                  >
-                    Ask
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Hint bubble for box drawing */}
-          {isLive && (
-            <div
-              className="absolute bottom-28 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3 rounded-xl shadow-2xl z-30 border border-blue-400 backdrop-blur-sm transform transition-all duration-300 hover:scale-105"
-            >
-              <p className="text-sm font-semibold flex items-center gap-2">
-                <span className="text-lg">✨</span>
-                Draw a box to ask questions
-              </p>
+          {/* Closeable tip for box drawing */}
+          {showDrawTip && (
+            <div className="absolute bottom-28 right-4 bg-gray-800 text-gray-100 px-4 py-3 rounded-lg shadow-lg z-30 border border-gray-600 flex items-center gap-3 max-w-xs">
+              <p className="text-sm flex-1">Tip: Draw a box to ask questions.</p>
+              <button
+                onClick={() => setShowDrawTip(false)}
+                className="p-1 rounded hover:bg-gray-600 text-gray-400 hover:text-white transition-colors flex-shrink-0"
+                aria-label="Dismiss tip"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>
@@ -1981,6 +1909,7 @@ export default function VideoPlayer({
             captionSize={captionSize}
             onCaptionSizeChange={setCaptionSize}
             onClose={() => setShowAccessibility(false)}
+            isLive={isLive}
           />
         )}
       </div>
